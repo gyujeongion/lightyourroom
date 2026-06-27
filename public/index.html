@@ -1,0 +1,3231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Light Your Room v2</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Stage: 전체 화면 그리드 */
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    gap: 0;
+    background: #000;
+    z-index: 1;
+    transition: gap 0.15s;
+  }
+  /* 가이드라인 ON + 편집 모드일 때만 라인 표시 */
+  body.guide:not(.perform) #stage {
+    gap: 1px;
+    background: rgba(255,255,255,0.08);
+  }
+  .cell {
+    background: #000;
+    cursor: crosshair;
+  }
+  body.perform .cell { cursor: default; }
+
+  /* 부드럽게 모드(soft blur) */
+  body.soft #stage { filter: blur(60px) brightness(1.15); }
+
+  /* 패널 */
+  #panel {
+    position: fixed;
+    top: 12px; right: 12px;
+    width: 360px;
+    height: calc(100vh - 24px);
+    min-width: 260px;
+    min-height: 60px;
+    max-width: 95vw;
+    max-height: 95vh;
+    background: rgba(10,10,10,0.85);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 14px 16px;
+    z-index: 10;
+    overflow: auto;
+    font-size: 12px;
+    line-height: 1.45;
+    transition: opacity 0.25s;
+    resize: both;
+  }
+  body.perform #panel { opacity: 0; pointer-events: none; }
+  #panel.hidden { opacity: 0; pointer-events: none; }
+
+  /* 접힘 상태 */
+  #panel.collapsed {
+    width: auto !important;
+    height: auto !important;
+    min-width: 160px;
+    min-height: 0;
+    padding: 10px 14px;
+    overflow: hidden;
+    resize: none;
+  }
+  #panel.collapsed > *:not(h1) { display: none !important; }
+  #panel.collapsed h1 { margin-bottom: 0; }
+
+  /* h1 = 드래그 핸들 */
+  #panel h1 { cursor: move; user-select: none; position: relative; padding-right: 108px; }
+  .hbtn {
+    position: absolute; top: -2px;
+    padding: 2px 8px !important;
+    font-size: 12px !important;
+    line-height: 1.2;
+    background: rgba(255,255,255,0.08) !important;
+  }
+  #langBtn { right: 56px; font-size: 10px !important; padding: 2px 6px !important; }
+  #collapseBtn { right: 28px; }
+  #closeBtn { right: 0; }
+  #panel::-webkit-scrollbar { width: 6px; }
+  #panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+  h1 {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: rgba(255,255,255,0.5);
+    margin-bottom: 10px;
+  }
+  h1 .ver { float: right; color: rgba(255,255,255,0.3); letter-spacing: 0.05em }
+  h2 {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: rgba(255,255,255,0.35);
+    margin: 14px 0 6px;
+  }
+
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .row > label {
+    flex: 0 0 auto; width: 64px;
+    font-size: 11px; color: rgba(255,255,255,0.55);
+  }
+  input[type="number"], input[type="text"], select {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: #fff;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+  }
+  input:focus, select:focus { border-color: rgba(255,255,255,0.35); }
+  .modBox {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: rgba(255,255,255,0.75);
+    cursor: pointer; user-select: none;
+    flex: 0 0 auto;
+  }
+  .modBox input[type="checkbox"] {
+    width: 14px; height: 14px;
+    accent-color: #fff; margin: 0;
+    cursor: pointer;
+  }
+  input[type="color"] {
+    width: 40px; height: 28px; padding: 2px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    cursor: pointer;
+  }
+
+  .grid { display: grid; gap: 5px; }
+  .c2 { grid-template-columns: repeat(2,1fr); }
+  .c3 { grid-template-columns: repeat(3,1fr); }
+  .c4 { grid-template-columns: repeat(4,1fr); }
+  .c8 { grid-template-columns: repeat(8,1fr); gap: 3px; }
+
+  button {
+    background: rgba(255,255,255,0.07);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 11px; font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.1s;
+  }
+  button:hover { background: rgba(255,255,255,0.15); }
+  button.active, button.on {
+    background: #fff; color: #000; border-color: #fff;
+  }
+  button.danger { background: rgba(255,80,80,0.15); border-color: rgba(255,80,80,0.4); }
+
+  /* Frame strip */
+  #frameStrip {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  #frameStrip::-webkit-scrollbar { height: 4px; }
+  .frameThumb {
+    flex: 0 0 auto;
+    width: 52px;
+    cursor: pointer;
+    padding: 4px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    text-align: center;
+  }
+  .frameThumb.selected { border-color: #fff; background: rgba(255,255,255,0.12); }
+  .frameThumb.playing { box-shadow: 0 0 0 2px #ff3c8c; }
+  .frameThumb { cursor: grab; }
+  .frameThumb.dragging { opacity: 0.4; cursor: grabbing; }
+  .frameThumb.dragover { border-color: #4af; box-shadow: -3px 0 0 -1px #4af; }
+  .frameThumb .mini {
+    display: grid;
+    width: 44px; height: 44px;
+    gap: 1px;
+    margin: 0 auto 4px;
+    background: #000;
+  }
+  .frameThumb .mini > div { background: #000; }
+  .frameThumb .name { font-size: 9px; color: rgba(255,255,255,0.6); }
+
+  /* 팔레트 스와치 — 8열 2행 컴팩트 */
+  .swatch {
+    width: 100%; aspect-ratio: 1;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    min-height: 0;
+    position: relative;
+    font-size: 0;
+  }
+  .swatch.active { border: 2px solid #fff; }
+  .swatch.active::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 800;
+    text-shadow: 0 0 3px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9), 0 1px 0 rgba(0,0,0,0.6);
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  /* 핫큐 */
+  #hotcueGrid { display: grid; grid-template-columns: repeat(5,1fr); gap: 4px; }
+  #hotcueGrid.midi-mode { grid-template-columns: repeat(4,1fr); gap: 5px; }
+  .hotcue {
+    aspect-ratio: 1.4;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.4);
+    border: 1px solid rgba(255,255,255,0.08);
+    position: relative;
+    overflow: hidden;
+  }
+  #hotcueGrid.midi-mode .hotcue { aspect-ratio: 1; }
+  .hotcue .num {
+    position: absolute; top: 3px; left: 5px;
+    font-size: 9px; opacity: 0.7;
+  }
+  .hotcue .preview {
+    display: grid;
+    width: 100%; height: 100%;
+    gap: 1px;
+  }
+  /* 뱅크 탭 */
+  #bankTabs { display: none; margin-bottom: 5px; }
+  #bankTabs.visible { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; }
+  .bankTab.active { background: #fff; color: #000; border-color: #fff; }
+  /* MIDI 설정 */
+  #midiSettings { display: none; padding: 8px 0 0; }
+  #midiSettings.visible { display: block; }
+  .midi-indicator {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.2); margin-right: 4px; vertical-align: middle;
+  }
+  .midi-indicator.active { background: #40ff80; box-shadow: 0 0 6px #40ff80; }
+  .hint {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    font-size: 10px;
+    color: rgba(255,255,255,0.4);
+    line-height: 1.65;
+  }
+  .hint kbd {
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: monospace;
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* 트랙 floating 패널 */
+  #seqPanel {
+    position: fixed;
+    left: 16px; bottom: 16px;
+    width: calc(100vw - 408px);
+    height: 180px;
+    min-width: 320px; min-height: 100px;
+    max-width: calc(100vw - 40px); max-height: 60vh;
+    background: rgba(10,10,10,0.88);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    z-index: 10;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+    transition: opacity 0.25s;
+    resize: both;
+  }
+  #seqPanel.visible { display: flex; }
+  #seqPanel.drag-over { border-color: rgba(120,200,255,0.7); box-shadow: 0 0 0 2px rgba(120,200,255,0.4) inset; }
+  #seqPanel.drag-over #waveCanvasWrap::after {
+    content: '여기에 트랙을 놓으세요';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: rgba(180,220,255,0.85);
+    background: rgba(40,80,120,0.25); pointer-events: none;
+  }
+  body.perform #seqPanel { opacity: 0; pointer-events: none; }
+  #seqTop {
+    display: flex; align-items: center; gap: 5px;
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+    cursor: move; user-select: none;
+  }
+  #seqTop button { padding: 3px 9px; font-size: 11px; }
+  #seqTop input[type="file"] {
+    font-size: 10px; color: rgba(255,255,255,0.5);
+    flex: 1; min-width: 0;
+    background: transparent; border: none; padding: 0;
+  }
+  .seqSep { width: 1px; height: 14px; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+  .wTime { font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.5); white-space: nowrap; }
+  #waveCanvasWrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: rgba(0,0,0,0.5);
+    cursor: crosshair;
+    min-height: 40px;
+  }
+  #waveCanvas, #waveOverlay {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #waveOverlay { pointer-events: none; }
+  #seqZoomRow {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 10px;
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  #seqZoomRow button { padding: 2px 7px; font-size: 11px; }
+  .seqHint { font-size: 9px; color: rgba(255,255,255,0.22); margin-left: auto; white-space: nowrap; overflow: hidden; }
+  #wRec.active { background: #e03030; color: #fff; border-color: #e03030; }
+  #wLoop.active { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.35); }
+
+  /* 커뮤니티 floating 패널 */
+  #commPanel {
+    position: fixed; left: 16px; top: 16px;
+    width: 340px; max-width: calc(100vw - 32px);
+    height: 520px; max-height: calc(100vh - 32px);
+    min-width: 280px; min-height: 220px;
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px; z-index: 11;
+    display: none; flex-direction: column; overflow: hidden;
+    resize: both; transition: opacity 0.2s;
+  }
+  #commPanel.visible { display: flex; }
+  body.perform #commPanel { opacity: 0; pointer-events: none; }
+  #commHead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    cursor: move; user-select: none; flex-shrink: 0;
+  }
+  #commHead .ttl {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,255,255,0.6);
+  }
+  #commHead button { padding: 2px 9px; font-size: 12px; background: rgba(255,255,255,0.08); }
+  #commBody { padding: 12px 14px; overflow-y: auto; flex: 1; font-size: 12px; }
+  #commBody::-webkit-scrollbar { width: 6px; }
+  #commBody::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+
+  /* 커뮤니티 */
+  #commList { display: flex; flex-direction: column; gap: 5px; }
+  .commCard {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 7px;
+    padding: 7px 8px;
+  }
+  .commCard .cthumb {
+    display: grid; width: 100%; aspect-ratio: 2 / 1;
+    gap: 1px; background: #000; border-radius: 5px;
+    overflow: hidden; margin-bottom: 6px;
+  }
+  .commCard .cthumb > div { min-width: 0; min-height: 0; }
+  .commCard .ct { font-size: 12px; font-weight: 600; color: #fff; word-break: break-all; line-height: 1.3; }
+  .commCard .cm { font-size: 10px; color: rgba(255,255,255,0.4); margin: 2px 0 6px; }
+  .commCard .cr { display: flex; gap: 4px; }
+  .commCard .cr button { flex: 1; padding: 4px 6px; font-size: 10px; }
+  .commCard .cvote.voted { background: rgba(120,200,255,0.25); border-color: rgba(120,200,255,0.5); }
+  .commCard .cdel { flex: 0 0 auto !important; opacity: 0.55; }
+  #commMsg.err { color: #ff8080; }
+  #commMsg.ok { color: #70e0a0; }
+
+  /* 코드 공유 textarea */
+  #codeArea {
+    width: 100%; min-height: 56px;
+    font-family: monospace; font-size: 10px;
+    word-break: break-all;
+    background: rgba(0,0,0,0.4);
+    color: rgba(255,255,255,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 8px;
+    resize: vertical;
+    outline: none;
+  }
+</style>
+</head>
+<body class="guide">
+
+<div id="stage"></div>
+
+<div id="seqPanel">
+  <div id="seqTop">
+    <button id="wPlay">▶</button>
+    <button id="wStop">■</button>
+    <button id="wRec" data-i18n-title="seq.recTitle" title="REC ON: 핫큐 클릭 시 현재 위치에 마커 자동 기록">● REC</button>
+    <button id="wLoop">↻ Loop</button>
+    <div class="seqSep"></div>
+    <input id="audioFile" type="file" accept="audio/*" data-i18n-title="seq.fileTitle" title="트랙 파일 선택 (창에 끌어다 놔도 됨)">
+    <div class="seqSep"></div>
+    <span class="wTime" id="wTime">--:-- / --:--</span>
+    <button id="seqClose" style="padding:3px 7px;opacity:0.5;margin-left:4px">✕</button>
+  </div>
+  <div id="waveCanvasWrap">
+    <canvas id="waveCanvas"></canvas>
+    <canvas id="waveOverlay"></canvas>
+  </div>
+  <div id="seqZoomRow">
+    <button id="wZoomIn">+</button>
+    <button id="wZoomOut">−</button>
+    <button id="wZoomFit" data-i18n="seq.zoomFit">전체</button>
+    <span id="wZoomLabel" style="font-size:10px;color:rgba(255,255,255,0.4);">1.0×</span>
+    <button id="wClear" class="danger" data-i18n="seq.clear" style="margin-left:6px">마커 삭제</button>
+    <span class="seqHint" data-i18n="seq.hint">Shift+클릭: 마커 · 우클릭: 삭제 · 드래그: 시크 · Ctrl+휠: 줌 · 휠: 팬</span>
+  </div>
+</div>
+
+<div id="commPanel">
+  <div id="commHead">
+    <span class="ttl" data-i18n="comm.title">커뮤니티 · 프리셋 공유</span>
+    <button id="commClose" data-i18n-title="comm.closeT" title="닫기">✕</button>
+  </div>
+  <div id="commBody">
+    <input id="commSearch" type="text" maxlength="50" data-i18n-ph="comm.searchPh" placeholder="검색 — 제목·닉네임" style="width:100%;margin-bottom:6px">
+    <div class="row" style="gap:4px;margin-bottom:8px">
+      <button id="commTabNew" class="active" data-i18n="comm.tabNew" style="flex:1">최신순</button>
+      <button id="commTabTop" data-i18n="comm.tabTop" style="flex:1">추천순</button>
+      <button id="commRefresh" data-i18n-title="comm.refreshT" title="새로고침" style="flex:0 0 auto">↻</button>
+    </div>
+    <div id="commList" data-i18n="comm.loading">불러오는 중…</div>
+    <button id="commMore" data-i18n="comm.more" style="width:100%;margin-top:6px;display:none">더 보기</button>
+    <div data-i18n="comm.shareHdr" style="font-size:10px;color:rgba(255,255,255,0.4);margin:12px 0 7px;border-top:1px solid rgba(255,255,255,0.07);padding-top:11px">
+      현재 작업을 커뮤니티에 공유
+    </div>
+    <input id="commTitle" type="text" maxlength="40" data-i18n-ph="comm.titlePh" placeholder="제목 (최대 40자)" style="width:100%;margin-bottom:5px">
+    <div class="row" style="gap:5px;margin-bottom:5px">
+      <input id="commNick" type="text" maxlength="16" data-i18n-ph="comm.nickPh" placeholder="닉네임" style="flex:1">
+      <input id="commPw" type="password" maxlength="40" data-i18n-ph="comm.pwPh" placeholder="삭제용 비밀번호" style="flex:1">
+    </div>
+    <div id="commTurnstile" style="margin-bottom:5px"></div>
+    <button id="commSubmit" data-i18n="comm.submit" style="width:100%">현재 작업을 프리셋으로 공유</button>
+    <div id="commMsg" style="font-size:10px;margin-top:5px;min-height:13px;color:rgba(255,255,255,0.5)"></div>
+  </div>
+</div>
+
+<div id="panel">
+  <h1>Light Your Room <span class="ver">v2.0</span>
+    <button id="langBtn" class="hbtn">한국어</button>
+    <button id="collapseBtn" class="hbtn">−</button>
+    <button id="closeBtn" class="hbtn">✕</button>
+  </h1>
+
+  <div class="row">
+    <label data-i18n="proj.label">프로젝트</label>
+    <input id="projName" type="text" data-i18n-ph="proj.ph" placeholder="이름 (.lroom 저장 시 파일명)" maxlength="60">
+  </div>
+
+  <div class="row">
+    <label>BPM</label>
+    <input id="bpm" type="number" value="128" min="40" max="220" step="0.1">
+    <button id="tapBpm" style="flex:0 0 auto;padding:5px 10px">TAP</button>
+  </div>
+
+  <div class="row">
+    <label data-i18n="grid.label">그리드</label>
+    <button data-size="4">4×4 (16)</button>
+    <button data-size="8" class="active">8×8 (64)</button>
+  </div>
+  <div class="row">
+    <label data-i18n="interp.label">전환</label>
+    <button id="interpBtn">하드 컷 (즉시 전환)</button>
+  </div>
+  <div class="row">
+    <label data-i18n="mode.label">모드</label>
+    <button id="perfBtn">라이브 모드</button>
+    <button id="softBtn">Soft Blur OFF</button>
+    <button id="playBtn" style="flex:0 0 auto;padding:5px 14px">▶</button>
+  </div>
+  <div class="row">
+    <label data-i18n="midi.label">MIDI</label>
+    <button id="midiBtn"><span class="midi-indicator" id="midiDot"></span>MIDI OFF</button>
+  </div>
+  <div id="midiSettings">
+    <div class="row">
+      <label data-i18n="midi.dev">장치</label>
+      <select id="midiDevSel"><option value="" data-i18n="midi.devNone">-- 장치 없음 --</option></select>
+    </div>
+    <div class="row">
+      <label data-i18n="midi.offset">노트 오프셋</label>
+      <input id="midiOffset" type="number" value="36" min="0" max="112" style="flex:0 0 54px">
+      <select id="midiPreset" style="flex:1">
+        <option value="" data-i18n="midi.custom">직접 설정</option>
+        <option value="36">Akai MPC / MPD</option>
+        <option value="64">Launchpad MK2</option>
+        <option value="0">Launchpad X</option>
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <label data-i18n="guide.label">가이드</label>
+    <button id="guideBtn" class="on">그리드 라인 ON</button>
+    <button id="undoBtn" style="flex:0 0 auto;padding:5px 10px">↶</button>
+    <button id="redoBtn" style="flex:0 0 auto;padding:5px 10px">↷</button>
+  </div>
+
+  <h2 data-i18n="h2.frame">프레임</h2>
+  <div id="frameStrip"></div>
+  <div class="grid c4" style="margin-top:6px">
+    <button id="frameDup" data-i18n="frame.add">+ 추가</button>
+    <button id="frameDel" class="danger" data-i18n="frame.del">− 삭제</button>
+    <button id="frameClone" data-i18n="frame.clone">복제</button>
+    <button id="frameReset" class="danger" data-i18n="frame.reset">전체 비움</button>
+  </div>
+
+  <h2 data-i18n="h2.timing">타이밍 (전체 프레임 공통)</h2>
+  <div class="row">
+    <label data-i18n="timing.mode">모드</label>
+    <select id="tMode">
+      <option value="bpm" data-i18n="opt.bpm">BPM 동기</option>
+      <option value="ms" data-i18n="opt.ms">Time (ms)</option>
+    </select>
+  </div>
+  <div class="row" id="tBpmRow">
+    <label data-i18n="timing.rate">주기</label>
+    <select id="tBpmValue"></select>
+  </div>
+  <div class="row" id="tModRow" style="padding-left:64px;gap:14px">
+    <label class="modBox"><input type="checkbox" id="modDot"> Dotted</label>
+    <label class="modBox"><input type="checkbox" id="modTriple"> Triplet</label>
+  </div>
+  <div class="row" id="tMsRow" style="display:none">
+    <label data-i18n="timing.dur">지속</label>
+    <input id="tMsValue" type="number" min="10" max="60000" value="200">
+    <span style="font-size:11px;color:rgba(255,255,255,0.5)">ms</span>
+  </div>
+
+  <h2 data-i18n="h2.paint">페인트</h2>
+  <div class="row">
+    <label data-i18n="paint.color">컬러</label>
+    <input id="activeColor" type="color" value="#ffffff">
+    <input id="activeHex" type="text" value="#ffffff" style="font-family:monospace">
+  </div>
+  <div class="grid c8" id="paletteSwatch"></div>
+  <div class="grid c3" style="margin-top:6px">
+    <button id="fillAll" data-i18n="paint.fill">전체 채움</button>
+    <button id="clearFrame" class="danger" data-i18n="paint.black">검정</button>
+    <button id="invertFrame" data-i18n="paint.invert">반전</button>
+  </div>
+
+  <h2 data-i18n="h2.lib">라이브러리</h2>
+  <div class="row">
+    <label data-i18n="lib.preset">프리셋</label>
+    <select id="presetSel"></select>
+  </div>
+  <div class="grid c2" style="margin-top:5px">
+    <button id="libResetBtn" data-i18n="lib.reset">기본 핫큐 복원</button>
+  </div>
+
+  <h2><span data-i18n="h2.hotcue">핫큐</span> <span data-i18n="hotcue.hint" style="font-weight:400;color:rgba(255,255,255,0.35);text-transform:none;letter-spacing:0;font-size:10px">· 빈슬롯 클릭=저장 · 클릭=불러오기 · 우클릭=삭제</span></h2>
+  <div id="bankTabs">
+    <button class="bankTab active" data-bank="A" data-i18n="bank.A">뱅크 A</button>
+    <button class="bankTab" data-bank="B" data-i18n="bank.B">뱅크 B</button>
+    <button class="bankTab" data-bank="C" data-i18n="bank.C">뱅크 C</button>
+  </div>
+  <div id="hotcueGrid"></div>
+
+  <h2 data-i18n="h2.code">공유 코드 (LR1)</h2>
+  <textarea id="codeArea" data-i18n-ph="code.ph" placeholder="LR1:... 코드 붙여넣고 불러오기 클릭"></textarea>
+  <div class="grid c2" style="margin-top:6px">
+    <button id="codeCopy" data-i18n="code.gen">📋 프리셋 코드 생성</button>
+    <button id="codeLoad" data-i18n="code.load">📥 불러오기</button>
+  </div>
+
+  <h2 data-i18n="h2.comm">커뮤니티</h2>
+  <button id="commToggle" style="width:100%">👥 커뮤니티 열기 <span style="font-size:9px;opacity:0.45;font-family:monospace">C</span></button>
+
+  <h2 data-i18n="h2.proj">프로젝트 파일 (.lroom)</h2>
+  <div class="grid c2">
+    <button id="projSave" data-i18n="proj.save">💾 저장</button>
+    <button id="projLoad" data-i18n="proj.loadBtn">📂 불러오기</button>
+  </div>
+  <input id="projFile" type="file" accept=".lroom,.json,application/json" style="display:none">
+  <div data-i18n="proj.note" style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:6px;line-height:1.5">
+    키보드 핫큐 10슬롯 + MIDI 뱅크 A/B/C(48슬롯) + 현재 작업 + 음원 마커까지 통째로 보관.
+  </div>
+
+  <h2 data-i18n="h2.track">트랙</h2>
+  <button id="seqToggle" style="width:100%">♫ 트랙 열기 <span style="font-size:9px;opacity:0.45;font-family:monospace">T</span></button>
+
+  <div class="hint">
+    <span data-i18n="hint.1" data-i18n-html></span><br>
+    <span data-i18n="hint.2" data-i18n-html></span><br>
+    <span data-i18n="hint.3" data-i18n-html></span><br>
+    <span data-i18n="hint.4" data-i18n-html></span>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ============= i18n =============
+  const DICT = {
+    en: {
+      'proj.label':'Project','proj.ph':'Name (filename when saving .lroom)',
+      'grid.label':'Grid','interp.label':'Transition',
+      'interp.hard':'Hard Cut (instant)','interp.soft':'Soft (crossfade)',
+      'mode.label':'Mode','perf.live':'Live Mode','perf.edit':'Edit Mode',
+      'midi.label':'MIDI','midi.dev':'Device','midi.devNone':'-- no device --',
+      'midi.offset':'Note offset','midi.custom':'Custom','guide.label':'Guide',
+      'guide.on':'Grid Lines ON','guide.off':'Grid Lines OFF',
+      'h2.frame':'Frames','frame.add':'+ Add','frame.del':'− Delete',
+      'frame.clone':'Duplicate','frame.reset':'Clear All',
+      'h2.timing':'Timing (all frames)','timing.mode':'Mode',
+      'opt.bpm':'BPM Sync','opt.ms':'Time (ms)','timing.rate':'Rate','timing.dur':'Duration',
+      'h2.paint':'Paint','paint.color':'Color','paint.fill':'Fill All',
+      'paint.black':'Black','paint.invert':'Invert',
+      'h2.lib':'Library','lib.preset':'Preset','lib.reset':'Restore Default Hotcues',
+      'h2.hotcue':'Hotcues','hotcue.hint':'· empty=save · click=load · right-click=delete',
+      'bank.A':'Bank A','bank.B':'Bank B','bank.C':'Bank C',
+      'h2.code':'Share Code (LR1)','code.ph':'Paste LR1:... code then click Load',
+      'code.gen':'📋 Generate Code','code.load':'📥 Load',
+      'h2.comm':'Community','comm.openBtn':'👥 Open Community','comm.closeBtn':'👥 Close Community',
+      'h2.proj':'Project File (.lroom)','proj.save':'💾 Save','proj.loadBtn':'📂 Load',
+      'proj.note':'Stores keyboard hotcues (10) + MIDI banks A/B/C (48) + current work + audio markers.',
+      'h2.track':'Track','track.open':'♫ Open Track','track.close':'♫ Close Track',
+      'hint.1':'<kbd>Space</kbd> play/stop · <kbd>E</kbd> Live Mode · <kbd>G</kbd> Guide · <kbd>B</kbd> Soft Blur',
+      'hint.2':'<kbd>H</kbd> Panel · <kbd>T</kbd> Track · <kbd>C</kbd> Community · <kbd>F</kbd> Fullscreen · <kbd>←→</kbd> Frame',
+      'hint.3':'<kbd>N</kbd> New frame · <kbd>Shift+N</kbd> Duplicate · <kbd>Del/Backspace</kbd> Delete',
+      'hint.4':'<kbd>Cmd/Ctrl+Z</kbd> Undo · <kbd>1~9, 0</kbd> Hotcue (kbd mode) · <kbd>Shift+num</kbd> Save',
+      'seq.recTitle':'REC ON: clicking a hotcue records a marker at the current position',
+      'seq.fileTitle':'Choose a track file (drag & drop also works)',
+      'seq.zoomFit':'All','seq.clear':'Clear markers',
+      'seq.hint':'Shift+click: marker · right-click: delete · drag: seek · Ctrl+wheel: zoom · wheel: pan',
+      'comm.title':'Community · Preset Share','comm.closeT':'Close',
+      'comm.searchPh':'Search — title · nick','comm.tabNew':'Newest','comm.tabTop':'Top',
+      'comm.refreshT':'Refresh','comm.loading':'Loading…','comm.more':'More',
+      'comm.shareHdr':'Share your current work','comm.titlePh':'Title (max 40)',
+      'comm.nickPh':'Nickname','comm.pwPh':'Delete password','comm.submit':'Share current work as preset',
+      'msg.codeCopied':'Copied ({n} chars)','msg.codeGenFail':'Code generation failed: ',
+      'msg.codeEmpty':'Paste a code into the text box','msg.loadFail':'Load failed: ',
+      'msg.confirmReset':'Clear all frames and keep just one empty frame. Continue?',
+      'msg.confirmLibReset':'Reset keyboard hotcues (10 slots) to default presets. Continue?',
+      'err.notLR1':'Not an LR1: code','comm.loaded':'Preset loaded','comm.loadFailM':'Load failed: ',
+      'comm.voteFail':'Vote failed','comm.deleted':'Deleted','comm.delFail':'Delete failed',
+      'comm.delPw':'Enter the delete password for this preset',
+      'comm.online':'Community works only online (lightyourroom.com)',
+      'comm.noResult':'No results.','comm.empty':'No presets shared yet. Be the first.',
+      'comm.listFail':'Failed to load the list.','comm.needTitle':'Enter a title',
+      'comm.needNick':'Enter a nickname','comm.needPw':'Password must be 4+ chars',
+      'comm.genFail':'Failed to generate code for current work','comm.uploading':'Uploading…',
+      'comm.shared':'Shared! Added to the top of the list','comm.fail':'Share failed',
+      'comm.failNet':'Share failed (network)','comm.load':'Load','comm.voteBtn':'▲ Vote','comm.delTitle':'Delete',
+      'rate.lbl':'{b} ({n} beats)','cat.wash':'Static Wash','cat.breathe':'Breathe',
+      'cat.strobe':'Strobe','cat.pattern':'Pattern','cat.cycle':'Color Cycle',
+      'd.warm':'Warm amber face light','d.cool':'Pure white face light','d.golden':'Golden orange',
+      'd.uv':'UV purple flood','d.deepred':'Deep red flood','d.black':'Full blackout',
+      'd.pinkp':'Hot pink BPM breathe','d.cyanp':'Cyan BPM breathe','d.purplep':'Purple BPM breathe',
+      'd.bluep':'Blue BPM breathe','d.redp':'Red BPM breathe','d.amberp':'Amber BPM breathe',
+      'd.st4':'Slow strobe','d.st8':'Standard strobe','d.st16':'Fast strobe',
+      'd.stdrop':'Drop ultra strobe','d.stpink':'Pink strobe','d.stblue':'Blue strobe',
+      'd.police':'Red↔blue alternate','d.colchase':'Column L→R chase','d.rowchase':'Row top→bottom chase',
+      'd.interleave':'Odd/even column alternate','d.halfsplit':'Top warm / bottom cool split',
+      'd.center':'Center spotlight','d.border':'Border frame only','d.rainbow':'6-color smooth cycle',
+      'd.sunset':'Red→orange→yellow','d.ocean':'Cyan→blue→purple','d.rave':'Pink→cyan→yellow',
+      'd.fire':'Orange↔red flicker','d.ice':'White↔deep blue',
+      'err.parseFail':'File parse failed: ','ask.notLyr':'This may not be a Light Your Room file. Load anyway?',
+      'midi.devSelect':'-- select device --',
+      'midi.noSupport':'This browser does not support the Web MIDI API.\nPlease use Chrome / Edge.',
+      'midi.accessFail':'MIDI access failed: ','audio.decodeFail':'Audio decoding failed: ',
+      'audio.dropHint':'Drop an audio file (mp3, wav, m4a, etc.)','ask.clearMarkers':'Delete all markers?',
+    },
+    ko: {
+      'proj.label':'프로젝트','proj.ph':'이름 (.lroom 저장 시 파일명)',
+      'grid.label':'그리드','interp.label':'전환',
+      'interp.hard':'하드 컷 (즉시 전환)','interp.soft':'부드럽게 (페이드 전환)',
+      'mode.label':'모드','perf.live':'라이브 모드','perf.edit':'편집 모드',
+      'midi.label':'MIDI','midi.dev':'장치','midi.devNone':'-- 장치 없음 --',
+      'midi.offset':'노트 오프셋','midi.custom':'직접 설정','guide.label':'가이드',
+      'guide.on':'그리드 라인 ON','guide.off':'그리드 라인 OFF',
+      'h2.frame':'프레임','frame.add':'+ 추가','frame.del':'− 삭제',
+      'frame.clone':'복제','frame.reset':'전체 비움',
+      'h2.timing':'타이밍 (전체 프레임 공통)','timing.mode':'모드',
+      'opt.bpm':'BPM 동기','opt.ms':'Time (ms)','timing.rate':'주기','timing.dur':'지속',
+      'h2.paint':'페인트','paint.color':'컬러','paint.fill':'전체 채움',
+      'paint.black':'검정','paint.invert':'반전',
+      'h2.lib':'라이브러리','lib.preset':'프리셋','lib.reset':'기본 핫큐 복원',
+      'h2.hotcue':'핫큐','hotcue.hint':'· 빈슬롯 클릭=저장 · 클릭=불러오기 · 우클릭=삭제',
+      'bank.A':'뱅크 A','bank.B':'뱅크 B','bank.C':'뱅크 C',
+      'h2.code':'공유 코드 (LR1)','code.ph':'LR1:... 코드 붙여넣고 불러오기 클릭',
+      'code.gen':'📋 프리셋 코드 생성','code.load':'📥 불러오기',
+      'h2.comm':'커뮤니티','comm.openBtn':'👥 커뮤니티 열기','comm.closeBtn':'👥 커뮤니티 닫기',
+      'h2.proj':'프로젝트 파일 (.lroom)','proj.save':'💾 저장','proj.loadBtn':'📂 불러오기',
+      'proj.note':'키보드 핫큐 10슬롯 + MIDI 뱅크 A/B/C(48슬롯) + 현재 작업 + 음원 마커까지 통째로 보관.',
+      'h2.track':'트랙','track.open':'♫ 트랙 열기','track.close':'♫ 트랙 닫기',
+      'hint.1':'<kbd>스페이스</kbd> 애니 재생/정지 · <kbd>E</kbd> 라이브 모드 · <kbd>G</kbd> 가이드 · <kbd>B</kbd> Soft Blur',
+      'hint.2':'<kbd>H</kbd> 패널 · <kbd>T</kbd> 트랙 · <kbd>C</kbd> 커뮤니티 · <kbd>F</kbd> 풀스크린 · <kbd>←→</kbd> 프레임',
+      'hint.3':'<kbd>N</kbd> 새 프레임 · <kbd>Shift+N</kbd> 복제 · <kbd>Del/Backspace</kbd> 삭제',
+      'hint.4':'<kbd>Cmd/Ctrl+Z</kbd> 실행취소 · <kbd>1~9, 0</kbd> 핫큐(키보드 모드) · <kbd>Shift+숫자</kbd> 저장',
+      'seq.recTitle':'REC ON: 핫큐 클릭 시 현재 위치에 마커 자동 기록',
+      'seq.fileTitle':'트랙 파일 선택 (창에 끌어다 놔도 됨)',
+      'seq.zoomFit':'전체','seq.clear':'마커 삭제',
+      'seq.hint':'Shift+클릭: 마커 · 우클릭: 삭제 · 드래그: 시크 · Ctrl+휠: 줌 · 휠: 팬',
+      'comm.title':'커뮤니티 · 프리셋 공유','comm.closeT':'닫기',
+      'comm.searchPh':'검색 — 제목·닉네임','comm.tabNew':'최신순','comm.tabTop':'추천순',
+      'comm.refreshT':'새로고침','comm.loading':'불러오는 중…','comm.more':'더 보기',
+      'comm.shareHdr':'현재 작업을 커뮤니티에 공유','comm.titlePh':'제목 (최대 40자)',
+      'comm.nickPh':'닉네임','comm.pwPh':'삭제용 비밀번호','comm.submit':'현재 작업을 프리셋으로 공유',
+      'msg.codeCopied':'복사됨 ({n}자)','msg.codeGenFail':'코드 생성 실패: ',
+      'msg.codeEmpty':'코드를 텍스트 박스에 붙여넣으세요','msg.loadFail':'불러오기 실패: ',
+      'msg.confirmReset':'모든 프레임을 지우고 새 빈 프레임 1개만 남깁니다. 진행할까요?',
+      'msg.confirmLibReset':'키보드 핫큐 10슬롯을 기본 프리셋으로 초기화합니다. 진행할까요?',
+      'err.notLR1':'LR1: 코드가 아닙니다','comm.loaded':'프리셋을 불러왔습니다','comm.loadFailM':'불러오기 실패: ',
+      'comm.voteFail':'추천 실패','comm.deleted':'삭제되었습니다','comm.delFail':'삭제 실패',
+      'comm.delPw':'이 프리셋의 삭제 비밀번호를 입력하세요',
+      'comm.online':'커뮤니티는 lightyourroom.com 온라인에서만 동작합니다',
+      'comm.noResult':'검색 결과가 없습니다.','comm.empty':'아직 공유된 프리셋이 없습니다. 첫 번째로 올려보세요.',
+      'comm.listFail':'목록을 불러오지 못했습니다.','comm.needTitle':'제목을 입력하세요',
+      'comm.needNick':'닉네임을 입력하세요','comm.needPw':'비밀번호는 4자 이상',
+      'comm.genFail':'현재 작업 코드 생성 실패','comm.uploading':'업로드 중…',
+      'comm.shared':'공유 완료! 목록 맨 위에 추가됐습니다','comm.fail':'공유 실패',
+      'comm.failNet':'공유 실패 (네트워크)','comm.load':'불러오기','comm.voteBtn':'▲ 추천','comm.delTitle':'삭제',
+      'rate.lbl':'{b} ({n}박)','cat.wash':'스태틱 워시','cat.breathe':'브레스',
+      'cat.strobe':'스트로브','cat.pattern':'패턴','cat.cycle':'컬러 사이클',
+      'd.warm':'웜 앰버 페이스 라이트','d.cool':'순백 페이스 라이트','d.golden':'골든 오렌지',
+      'd.uv':'UV 퍼플 플러드','d.deepred':'딥 레드 플러드','d.black':'완전 소등',
+      'd.pinkp':'핫핑크 BPM 호흡','d.cyanp':'시안 BPM 호흡','d.purplep':'퍼플 BPM 호흡',
+      'd.bluep':'블루 BPM 호흡','d.redp':'레드 BPM 호흡','d.amberp':'앰버 BPM 호흡',
+      'd.st4':'슬로우 스트로브','d.st8':'스탠다드 스트로브','d.st16':'패스트 스트로브',
+      'd.stdrop':'드랍 울트라 스트로브','d.stpink':'핑크 스트로브','d.stblue':'블루 스트로브',
+      'd.police':'레드↔블루 교대','d.colchase':'컬럼 L→R 체이스','d.rowchase':'로우 위→아래 체이스',
+      'd.interleave':'홀짝 컬럼 교대','d.halfsplit':'상 웜 / 하 쿨 분리',
+      'd.center':'중앙 스팟 라이트','d.border':'테두리 프레임 온리','d.rainbow':'6색 스무스 사이클',
+      'd.sunset':'레드→오렌지→옐로','d.ocean':'시안→블루→퍼플','d.rave':'핑크→시안→옐로',
+      'd.fire':'오렌지↔레드 플리커','d.ice':'화이트↔딥블루',
+      'err.parseFail':'파일 파싱 실패: ','ask.notLyr':'Light Your Room 파일이 아닐 수 있습니다. 그래도 불러올까요?',
+      'midi.devSelect':'-- 장치 선택 --',
+      'midi.noSupport':'이 브라우저는 Web MIDI API를 지원하지 않습니다.\nChrome / Edge를 사용해 주세요.',
+      'midi.accessFail':'MIDI 접근 실패: ','audio.decodeFail':'오디오 디코딩 실패: ',
+      'audio.dropHint':'오디오 파일을 끌어다 놓으세요 (mp3, wav, m4a 등)','ask.clearMarkers':'모든 마커를 삭제합니다?',
+    },
+    ja: {
+      'proj.label':'プロジェクト','proj.ph':'名前（.lroom 保存時のファイル名）',
+      'grid.label':'グリッド','interp.label':'トランジション',
+      'interp.hard':'ハードカット（即時）','interp.soft':'ソフト（クロスフェード）',
+      'mode.label':'モード','perf.live':'ライブモード','perf.edit':'編集モード',
+      'midi.label':'MIDI','midi.dev':'デバイス','midi.devNone':'-- デバイスなし --',
+      'midi.offset':'ノートオフセット','midi.custom':'カスタム','guide.label':'ガイド',
+      'guide.on':'グリッド線 ON','guide.off':'グリッド線 OFF',
+      'h2.frame':'フレーム','frame.add':'+ 追加','frame.del':'− 削除',
+      'frame.clone':'複製','frame.reset':'すべてクリア',
+      'h2.timing':'タイミング（全フレーム共通）','timing.mode':'モード',
+      'opt.bpm':'BPM 同期','opt.ms':'Time (ms)','timing.rate':'レート','timing.dur':'持続',
+      'h2.paint':'ペイント','paint.color':'カラー','paint.fill':'全面塗り',
+      'paint.black':'ブラック','paint.invert':'反転',
+      'h2.lib':'ライブラリ','lib.preset':'プリセット','lib.reset':'デフォルトのホットキューに戻す',
+      'h2.hotcue':'ホットキュー','hotcue.hint':'· 空き=保存 · クリック=読込 · 右クリック=削除',
+      'bank.A':'バンク A','bank.B':'バンク B','bank.C':'バンク C',
+      'h2.code':'共有コード (LR1)','code.ph':'LR1:... コードを貼り付けて「読込」をクリック',
+      'code.gen':'📋 コード生成','code.load':'📥 読込',
+      'h2.comm':'コミュニティ','comm.openBtn':'👥 コミュニティを開く','comm.closeBtn':'👥 コミュニティを閉じる',
+      'h2.proj':'プロジェクトファイル (.lroom)','proj.save':'💾 保存','proj.loadBtn':'📂 読込',
+      'proj.note':'キーボードホットキュー（10）+ MIDIバンク A/B/C（48）+ 現在の作業 + オーディオマーカーをまとめて保存。',
+      'h2.track':'トラック','track.open':'♫ トラックを開く','track.close':'♫ トラックを閉じる',
+      'hint.1':'<kbd>Space</kbd> 再生/停止 · <kbd>E</kbd> ライブモード · <kbd>G</kbd> ガイド · <kbd>B</kbd> Soft Blur',
+      'hint.2':'<kbd>H</kbd> パネル · <kbd>T</kbd> トラック · <kbd>C</kbd> コミュニティ · <kbd>F</kbd> フルスクリーン · <kbd>←→</kbd> フレーム',
+      'hint.3':'<kbd>N</kbd> 新規フレーム · <kbd>Shift+N</kbd> 複製 · <kbd>Del/Backspace</kbd> 削除',
+      'hint.4':'<kbd>Cmd/Ctrl+Z</kbd> 元に戻す · <kbd>1~9, 0</kbd> ホットキュー（キーボード） · <kbd>Shift+数字</kbd> 保存',
+      'seq.recTitle':'REC ON: ホットキュークリックで現在位置にマーカーを記録',
+      'seq.fileTitle':'トラックファイルを選択（ウィンドウにドロップでも可）',
+      'seq.zoomFit':'全体','seq.clear':'マーカー削除',
+      'seq.hint':'Shift+クリック: マーカー · 右クリック: 削除 · ドラッグ: シーク · Ctrl+ホイール: ズーム · ホイール: パン',
+      'comm.title':'コミュニティ · プリセット共有','comm.closeT':'閉じる',
+      'comm.searchPh':'検索 — タイトル・ニックネーム','comm.tabNew':'新着順','comm.tabTop':'人気順',
+      'comm.refreshT':'更新','comm.loading':'読み込み中…','comm.more':'もっと見る',
+      'comm.shareHdr':'現在の作業を共有','comm.titlePh':'タイトル（最大40文字）',
+      'comm.nickPh':'ニックネーム','comm.pwPh':'削除用パスワード','comm.submit':'現在の作業をプリセットとして共有',
+      'msg.codeCopied':'コピーしました（{n}文字）','msg.codeGenFail':'コード生成に失敗: ',
+      'msg.codeEmpty':'コードをテキストボックスに貼り付けてください','msg.loadFail':'読込に失敗: ',
+      'msg.confirmReset':'すべてのフレームを消去し、空のフレーム1つだけ残します。続行しますか？',
+      'msg.confirmLibReset':'キーボードホットキュー（10スロット）をデフォルトに初期化します。続行しますか？',
+      'err.notLR1':'LR1: コードではありません','comm.loaded':'プリセットを読み込みました','comm.loadFailM':'読込に失敗: ',
+      'comm.voteFail':'投票に失敗','comm.deleted':'削除しました','comm.delFail':'削除に失敗',
+      'comm.delPw':'このプリセットの削除用パスワードを入力してください',
+      'comm.online':'コミュニティはオンライン（lightyourroom.com）でのみ動作します',
+      'comm.noResult':'検索結果がありません。','comm.empty':'まだ共有されたプリセットがありません。最初の1人になりましょう。',
+      'comm.listFail':'リストの読み込みに失敗しました。','comm.needTitle':'タイトルを入力してください',
+      'comm.needNick':'ニックネームを入力してください','comm.needPw':'パスワードは4文字以上',
+      'comm.genFail':'現在の作業のコード生成に失敗','comm.uploading':'アップロード中…',
+      'comm.shared':'共有しました！リストの先頭に追加されました','comm.fail':'共有に失敗',
+      'comm.failNet':'共有に失敗（ネットワーク）','comm.load':'読込','comm.voteBtn':'▲ 投票','comm.delTitle':'削除',
+      'rate.lbl':'{b}（{n}拍）','cat.wash':'スタティックウォッシュ','cat.breathe':'ブレス',
+      'cat.strobe':'ストロボ','cat.pattern':'パターン','cat.cycle':'カラーサイクル',
+      'd.warm':'ウォームアンバーのフェイスライト','d.cool':'純白のフェイスライト','d.golden':'ゴールデンオレンジ',
+      'd.uv':'UVパープルフラッド','d.deepred':'ディープレッドフラッド','d.black':'完全消灯',
+      'd.pinkp':'ホットピンク BPM ブレス','d.cyanp':'シアン BPM ブレス','d.purplep':'パープル BPM ブレス',
+      'd.bluep':'ブルー BPM ブレス','d.redp':'レッド BPM ブレス','d.amberp':'アンバー BPM ブレス',
+      'd.st4':'スローストロボ','d.st8':'スタンダードストロボ','d.st16':'ファストストロボ',
+      'd.stdrop':'ドロップ・ウルトラストロボ','d.stpink':'ピンクストロボ','d.stblue':'ブルーストロボ',
+      'd.police':'レッド↔ブルー交互','d.colchase':'列 L→R チェイス','d.rowchase':'行 上→下 チェイス',
+      'd.interleave':'奇数/偶数列の交互','d.halfsplit':'上ウォーム / 下クール分割',
+      'd.center':'センタースポット','d.border':'枠のみ','d.rainbow':'6色スムーズサイクル',
+      'd.sunset':'レッド→オレンジ→イエロー','d.ocean':'シアン→ブルー→パープル','d.rave':'ピンク→シアン→イエロー',
+      'd.fire':'オレンジ↔レッドのちらつき','d.ice':'ホワイト↔ディープブルー',
+      'err.parseFail':'ファイルの解析に失敗: ','ask.notLyr':'Light Your Room のファイルではない可能性があります。それでも読み込みますか？',
+      'midi.devSelect':'-- デバイスを選択 --',
+      'midi.noSupport':'このブラウザは Web MIDI API に対応していません。\nChrome / Edge をご利用ください。',
+      'midi.accessFail':'MIDIアクセスに失敗: ','audio.decodeFail':'オーディオのデコードに失敗: ',
+      'audio.dropHint':'オーディオファイルをドロップ（mp3, wav, m4a など）','ask.clearMarkers':'すべてのマーカーを削除しますか？',
+    },
+    zh: {
+      'proj.label':'项目','proj.ph':'名称（保存 .lroom 时的文件名）',
+      'grid.label':'网格','interp.label':'过渡',
+      'interp.hard':'硬切（即时）','interp.soft':'柔和（交叉淡化）',
+      'mode.label':'模式','perf.live':'现场模式','perf.edit':'编辑模式',
+      'midi.label':'MIDI','midi.dev':'设备','midi.devNone':'-- 无设备 --',
+      'midi.offset':'音符偏移','midi.custom':'自定义','guide.label':'参考线',
+      'guide.on':'网格线 开','guide.off':'网格线 关',
+      'h2.frame':'帧','frame.add':'+ 添加','frame.del':'− 删除',
+      'frame.clone':'复制','frame.reset':'全部清空',
+      'h2.timing':'时序（所有帧通用）','timing.mode':'模式',
+      'opt.bpm':'BPM 同步','opt.ms':'Time (ms)','timing.rate':'频率','timing.dur':'持续',
+      'h2.paint':'绘制','paint.color':'颜色','paint.fill':'全部填充',
+      'paint.black':'黑色','paint.invert':'反转',
+      'h2.lib':'库','lib.preset':'预设','lib.reset':'恢复默认热键',
+      'h2.hotcue':'热键','hotcue.hint':'· 空位=保存 · 点击=载入 · 右键=删除',
+      'bank.A':'库 A','bank.B':'库 B','bank.C':'库 C',
+      'h2.code':'分享码 (LR1)','code.ph':'粘贴 LR1:... 代码后点击「载入」',
+      'code.gen':'📋 生成代码','code.load':'📥 载入',
+      'h2.comm':'社区','comm.openBtn':'👥 打开社区','comm.closeBtn':'👥 关闭社区',
+      'h2.proj':'项目文件 (.lroom)','proj.save':'💾 保存','proj.loadBtn':'📂 载入',
+      'proj.note':'整体保存键盘热键（10）+ MIDI 库 A/B/C（48）+ 当前作品 + 音频标记。',
+      'h2.track':'音轨','track.open':'♫ 打开音轨','track.close':'♫ 关闭音轨',
+      'hint.1':'<kbd>Space</kbd> 播放/停止 · <kbd>E</kbd> 现场模式 · <kbd>G</kbd> 参考线 · <kbd>B</kbd> Soft Blur',
+      'hint.2':'<kbd>H</kbd> 面板 · <kbd>T</kbd> 音轨 · <kbd>C</kbd> 社区 · <kbd>F</kbd> 全屏 · <kbd>←→</kbd> 帧',
+      'hint.3':'<kbd>N</kbd> 新建帧 · <kbd>Shift+N</kbd> 复制 · <kbd>Del/Backspace</kbd> 删除',
+      'hint.4':'<kbd>Cmd/Ctrl+Z</kbd> 撤销 · <kbd>1~9, 0</kbd> 热键（键盘模式） · <kbd>Shift+数字</kbd> 保存',
+      'seq.recTitle':'REC 开：点击热键会在当前位置记录标记',
+      'seq.fileTitle':'选择音轨文件（也可拖入窗口）',
+      'seq.zoomFit':'全部','seq.clear':'清除标记',
+      'seq.hint':'Shift+点击: 标记 · 右键: 删除 · 拖动: 定位 · Ctrl+滚轮: 缩放 · 滚轮: 平移',
+      'comm.title':'社区 · 预设分享','comm.closeT':'关闭',
+      'comm.searchPh':'搜索 — 标题·昵称','comm.tabNew':'最新','comm.tabTop':'热门',
+      'comm.refreshT':'刷新','comm.loading':'加载中…','comm.more':'更多',
+      'comm.shareHdr':'分享你的当前作品','comm.titlePh':'标题（最多40字）',
+      'comm.nickPh':'昵称','comm.pwPh':'删除密码','comm.submit':'将当前作品分享为预设',
+      'msg.codeCopied':'已复制（{n}字符）','msg.codeGenFail':'代码生成失败: ',
+      'msg.codeEmpty':'请将代码粘贴到文本框','msg.loadFail':'载入失败: ',
+      'msg.confirmReset':'清空所有帧，仅保留一个空帧。是否继续？',
+      'msg.confirmLibReset':'将键盘热键（10个）重置为默认预设。是否继续？',
+      'err.notLR1':'不是 LR1: 代码','comm.loaded':'已载入预设','comm.loadFailM':'载入失败: ',
+      'comm.voteFail':'点赞失败','comm.deleted':'已删除','comm.delFail':'删除失败',
+      'comm.delPw':'请输入该预设的删除密码',
+      'comm.online':'社区仅在线（lightyourroom.com）可用',
+      'comm.noResult':'没有搜索结果。','comm.empty':'还没有共享的预设。来当第一个吧。',
+      'comm.listFail':'无法加载列表。','comm.needTitle':'请输入标题',
+      'comm.needNick':'请输入昵称','comm.needPw':'密码至少4个字符',
+      'comm.genFail':'当前作品代码生成失败','comm.uploading':'上传中…',
+      'comm.shared':'已分享！已添加到列表顶部','comm.fail':'分享失败',
+      'comm.failNet':'分享失败（网络）','comm.load':'载入','comm.voteBtn':'▲ 点赞','comm.delTitle':'删除',
+      'rate.lbl':'{b}（{n}拍）','cat.wash':'静态铺光','cat.breathe':'呼吸',
+      'cat.strobe':'频闪','cat.pattern':'图案','cat.cycle':'色彩循环',
+      'd.warm':'暖琥珀补光','d.cool':'纯白补光','d.golden':'金橙色',
+      'd.uv':'UV 紫色泛光','d.deepred':'深红泛光','d.black':'全黑',
+      'd.pinkp':'亮粉 BPM 呼吸','d.cyanp':'青色 BPM 呼吸','d.purplep':'紫色 BPM 呼吸',
+      'd.bluep':'蓝色 BPM 呼吸','d.redp':'红色 BPM 呼吸','d.amberp':'琥珀 BPM 呼吸',
+      'd.st4':'慢速频闪','d.st8':'标准频闪','d.st16':'快速频闪',
+      'd.stdrop':'Drop 超强频闪','d.stpink':'粉色频闪','d.stblue':'蓝色频闪',
+      'd.police':'红↔蓝交替','d.colchase':'列 L→R 追逐','d.rowchase':'行 上→下 追逐',
+      'd.interleave':'奇偶列交替','d.halfsplit':'上暖 / 下冷 分割',
+      'd.center':'中心聚光','d.border':'仅边框','d.rainbow':'6色平滑循环',
+      'd.sunset':'红→橙→黄','d.ocean':'青→蓝→紫','d.rave':'粉→青→黄',
+      'd.fire':'橙↔红 闪烁','d.ice':'白↔深蓝',
+      'err.parseFail':'文件解析失败: ','ask.notLyr':'这可能不是 Light Your Room 文件。仍要载入吗？',
+      'midi.devSelect':'-- 选择设备 --',
+      'midi.noSupport':'此浏览器不支持 Web MIDI API。\n请使用 Chrome / Edge。',
+      'midi.accessFail':'MIDI 访问失败: ','audio.decodeFail':'音频解码失败: ',
+      'audio.dropHint':'拖入音频文件（mp3、wav、m4a 等）','ask.clearMarkers':'删除所有标记？',
+    },
+  };
+  let LANG = 'en';
+  function t(k, v) {
+    let s = (DICT[LANG] && DICT[LANG][k] != null) ? DICT[LANG][k] : (DICT.en[k] != null ? DICT.en[k] : k);
+    if (v) for (const p in v) s = s.split('{' + p + '}').join(v[p]);
+    return s;
+  }
+  const LANGS = ['en', 'ko', 'ja', 'zh'];
+  const LANG_LABEL = { en: 'EN', ko: '한국어', ja: '日本語', zh: '中文' };
+  function applyLang(lang) {
+    LANG = LANGS.includes(lang) ? lang : 'en';
+    try { localStorage.setItem('lyr_lang', LANG); } catch (e) {}
+    document.documentElement.lang = LANG;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const html = t(el.dataset.i18n);
+      if (el.dataset.i18nHtml != null) el.innerHTML = html;
+      else el.textContent = html;
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
+    const lb = document.getElementById('langBtn');
+    // Button shows the NEXT language you'll switch to, so all four are reachable.
+    if (lb) { const nx = LANGS[(LANGS.indexOf(LANG) + 1) % LANGS.length]; lb.textContent = LANG_LABEL[nx]; }
+    if (typeof window.__refreshDynI18n === 'function') window.__refreshDynI18n();
+  }
+  window.__t = t;
+  window.__applyLang = applyLang;
+  window.__getLang = () => LANG;
+
+  // ============= 색 유틸 =============
+  function hexToRgb(hex) {
+    const m = (hex||'').replace('#','').match(/.{2}/g);
+    return m ? m.map(s => parseInt(s,16)) : [0,0,0];
+  }
+  function rgbToHex(rgb) {
+    return '#' + rgb.map(v => Math.max(0,Math.min(255,v|0)).toString(16).padStart(2,'0')).join('');
+  }
+  function lerpHex(a, b, t) {
+    const ra = hexToRgb(a), rb = hexToRgb(b);
+    return rgbToHex([
+      ra[0]+(rb[0]-ra[0])*t,
+      ra[1]+(rb[1]-ra[1])*t,
+      ra[2]+(rb[2]-ra[2])*t,
+    ]);
+  }
+
+  // ============= 시간 단위 =============
+  // BPM 동기 — 베이스 음표 (1 = 1박 = quarter note)
+  // Dotted = ×1.5, Triplet = ×(2/3)
+  const BASES = [
+    { b: '4 bars', n: 16, value: 16 },
+    { b: '2 bars', n: 8, value: 8 },
+    { b: '1 bar', n: 4, value: 4 },
+    { b: '1/2', n: 2, value: 2 },
+    { b: '1/4', n: 1, value: 1 },
+    { label: '1/8', value: 0.5 },
+    { label: '1/16', value: 0.25 },
+    { label: '1/32', value: 0.125 },
+    { label: '1/64', value: 0.0625 },
+  ];
+
+  const tBpmSel = document.getElementById('tBpmValue');
+  function buildRateOptions() {
+    const cur = tBpmSel.value;
+    tBpmSel.innerHTML = '';
+    BASES.forEach(s => {
+      const o = document.createElement('option');
+      o.value = String(s.value);
+      o.textContent = (s.n != null) ? t('rate.lbl', { b: s.b, n: s.n }) : s.label;
+      tBpmSel.appendChild(o);
+    });
+    tBpmSel.value = cur || '0.5';
+  }
+  buildRateOptions();
+
+  function modifierMultiplier(mod) {
+    return mod === 'dot' ? 1.5 : mod === 'triple' ? 2/3 : 1;
+  }
+  function resolveBaseMod(value) {
+    // 옛 데이터(value만 있음) → base+modifier로 역추론
+    for (const b of BASES) {
+      if (Math.abs(b.value - value) < 1e-6) return { base: b.value, modifier: 'normal' };
+      if (Math.abs(b.value * 1.5 - value) < 1e-6) return { base: b.value, modifier: 'dot' };
+      if (Math.abs(b.value * (2/3) - value) < 1e-6) return { base: b.value, modifier: 'triple' };
+    }
+    return { base: 0.5, modifier: 'normal' };  // 매치 안 되면 1/8 디폴트
+  }
+
+  // ============= 무대 조명 표준 16색 =============
+  // 페스티벌·콘서트·연극 무대 조명에서 가장 자주 쓰이는 컬러 젤(gel) 톤
+  // 1행: 화이트~앰버 (페이스 라이트, 골든 워시)
+  // 2행: 레드~핑크~마젠타 (드라마틱·라이브 댄스)
+  // 3행: 퍼플~블루~시안 (시네마틱·미스틱·라이브 댄스)
+  // 4행: 그린~라임~옐로 (UV 사이드·하이라이트)
+  const DEFAULT_PALETTE = [
+    '#000000', '#ffffff', '#ffe8c8', '#ffb060',
+    '#ff8030', '#ff2040', '#ff60a0', '#ff20a0',
+    '#c020ff', '#6020e0', '#2040ff', '#2090ff',
+    '#20e0d0', '#40ff20', '#d0ff20', '#ffe020',
+  ];
+
+  // ============= 상태 =============
+  const state = {
+    bpm: 128,
+    gridSize: 8,
+    interpolate: false,
+    playing: false,
+    perform: false,
+    soft: false,
+    frames: [],
+    currentFrame: 0,    // 재생 중 프레임
+    editingFrame: 0,    // 편집 중 프레임
+    frameStartTime: performance.now(),
+    activeColor: '#ffffff',
+    // 타이밍: bpm 모드면 base + modifier 사용, ms 모드면 value 사용
+    timing: { mode: 'bpm', base: 0.5, modifier: 'normal', value: 200 },
+  };
+
+  function makeFrame() {
+    return {
+      cells: new Array(state.gridSize * state.gridSize).fill('#000000'),
+    };
+  }
+
+  // 초기 프레임 1개
+  state.frames = [makeFrame()];
+
+  // ============= 실행취소 (Undo/Redo) =============
+  const HISTORY_MAX = 80;
+  const undoStack = [];
+  const redoStack = [];
+
+  function snapshot() {
+    return {
+      frames: JSON.parse(JSON.stringify(state.frames)),
+      editingFrame: state.editingFrame,
+      gridSize: state.gridSize,
+      interpolate: state.interpolate,
+    };
+  }
+  function pushHistory() {
+    undoStack.push(snapshot());
+    if (undoStack.length > HISTORY_MAX) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function applySnapshot(snap) {
+    state.frames = JSON.parse(JSON.stringify(snap.frames));
+    state.editingFrame = Math.min(snap.editingFrame, state.frames.length - 1);
+    if (!state.playing) state.currentFrame = state.editingFrame;
+    state.interpolate = snap.interpolate;
+    interpBtn && (
+      interpBtn.classList.toggle('on', state.interpolate),
+      interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard')
+    );
+    if (snap.gridSize !== state.gridSize) {
+      state.gridSize = snap.gridSize;
+      document.querySelectorAll('[data-size]').forEach(x =>
+        x.classList.toggle('active', parseInt(x.dataset.size) === state.gridSize));
+      rebuildGrid();
+    } else {
+      renderFrameStrip();
+      renderStageImmediate();
+    }
+    syncTimingUI();
+  }
+  function undo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(snapshot());
+    applySnapshot(undoStack.pop());
+  }
+  function redo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(snapshot());
+    applySnapshot(redoStack.pop());
+  }
+
+  // ============= Stage / Grid =============
+  const stage = document.getElementById('stage');
+
+  function rebuildGrid() {
+    stage.innerHTML = '';
+    stage.style.gridTemplateColumns = `repeat(${state.gridSize}, 1fr)`;
+    stage.style.gridTemplateRows = `repeat(${state.gridSize}, 1fr)`;
+    for (let i = 0; i < state.gridSize * state.gridSize; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.idx = i;
+      cell.addEventListener('mousedown', (e) => {
+        if (state.perform) return;
+        if (e.button === 0) {
+          pushHistory();
+          paintCell(i, state.activeColor);
+          dragMode = 'paint';
+        } else if (e.button === 2) {
+          pushHistory();
+          paintCell(i, '#000000');
+          dragMode = 'erase';
+        }
+      });
+      cell.addEventListener('mouseenter', (e) => {
+        if (state.perform || !dragMode) return;
+        if (dragMode === 'paint' && (e.buttons & 1)) paintCell(i, state.activeColor);
+        else if (dragMode === 'erase' && (e.buttons & 2)) paintCell(i, '#000000');
+      });
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();  // 브라우저 컨텍스트 메뉴 차단
+      });
+      stage.appendChild(cell);
+    }
+
+    // 프레임 cells 크기 맞춤
+    for (const f of state.frames) {
+      const need = state.gridSize * state.gridSize;
+      if (f.cells.length !== need) {
+        const old = f.cells;
+        f.cells = new Array(need).fill('#000000');
+        // 가능한 범위만 복사
+        for (let i = 0; i < Math.min(old.length, need); i++) f.cells[i] = old[i];
+      }
+    }
+    renderStageImmediate();
+    renderFrameStrip();
+  }
+
+  let dragMode = null;  // 'paint' | 'erase' | null
+  window.addEventListener('mouseup', () => { dragMode = null; });
+
+  // 동일 색이면 DOM 업데이트 스킵 (퍼포먼스)
+  let lastRendered = [];
+  function renderStage(cells) {
+    const els = stage.children;
+    for (let i = 0; i < cells.length; i++) {
+      if (lastRendered[i] !== cells[i]) {
+        els[i].style.background = cells[i];
+        lastRendered[i] = cells[i];
+      }
+    }
+  }
+  function renderStageImmediate() {
+    lastRendered = [];
+    renderStage(state.frames[state.editingFrame].cells);
+  }
+  function renderInterpolated(a, b, t) {
+    const blended = new Array(a.length);
+    for (let i = 0; i < a.length; i++) {
+      blended[i] = (a[i] === b[i]) ? a[i] : lerpHex(a[i], b[i], t);
+    }
+    renderStage(blended);
+  }
+
+  // ============= 페인트 =============
+  function paintCell(idx, color) {
+    color = color || state.activeColor;
+    const f = state.frames[state.editingFrame];
+    if (f.cells[idx] === color) return;
+    f.cells[idx] = color;
+    if (!state.playing) renderStageImmediate();
+    renderFrameThumb(state.editingFrame);
+  }
+
+  // ============= Frame Strip =============
+  function renderFrameStrip() {
+    const strip = document.getElementById('frameStrip');
+    strip.innerHTML = '';
+    state.frames.forEach((f, i) => {
+      strip.appendChild(buildFrameThumb(i));
+    });
+  }
+  function buildFrameThumb(i) {
+    const div = document.createElement('div');
+    div.className = 'frameThumb';
+    if (i === state.editingFrame) div.classList.add('selected');
+    if (i === state.currentFrame && state.playing) div.classList.add('playing');
+    div.dataset.idx = i;
+    const mini = document.createElement('div');
+    mini.className = 'mini';
+    mini.style.gridTemplateColumns = `repeat(${state.gridSize}, 1fr)`;
+    state.frames[i].cells.forEach(c => {
+      const mc = document.createElement('div');
+      mc.style.background = c;
+      mini.appendChild(mc);
+    });
+    div.appendChild(mini);
+    const nm = document.createElement('div');
+    nm.className = 'name';
+    nm.textContent = `F${i+1}`;
+    div.appendChild(nm);
+    div.addEventListener('click', () => {
+      state.editingFrame = i;
+      syncTimingUI();
+      renderFrameStrip();
+      if (!state.playing) {
+        state.currentFrame = i;
+        renderStageImmediate();
+      }
+    });
+    // 드래그로 순서 변경
+    div.draggable = true;
+    div.addEventListener('dragstart', (e) => {
+      dragSrcIdx = i;
+      e.dataTransfer.effectAllowed = 'move';
+      div.classList.add('dragging');
+    });
+    div.addEventListener('dragend', () => {
+      div.classList.remove('dragging');
+      document.querySelectorAll('.frameThumb.dragover')
+        .forEach(el => el.classList.remove('dragover'));
+    });
+    div.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragSrcIdx !== null && dragSrcIdx !== i) div.classList.add('dragover');
+    });
+    div.addEventListener('dragleave', () => div.classList.remove('dragover'));
+    div.addEventListener('drop', (e) => {
+      e.preventDefault();
+      div.classList.remove('dragover');
+      if (dragSrcIdx !== null && dragSrcIdx !== i) moveFrame(dragSrcIdx, i);
+      dragSrcIdx = null;
+    });
+    return div;
+  }
+  let dragSrcIdx = null;
+  function moveFrame(from, to) {
+    if (from === to || from < 0 || to < 0 ||
+        from >= state.frames.length || to >= state.frames.length) return;
+    pushHistory();
+    // 인덱스가 아니라 객체 참조를 추적해 재정렬 후 위치를 복원한다
+    const editRef = state.frames[state.editingFrame];
+    const curRef  = state.frames[state.currentFrame];
+    const [moved] = state.frames.splice(from, 1);
+    state.frames.splice(to, 0, moved);
+    state.editingFrame  = Math.max(0, state.frames.indexOf(editRef));
+    state.currentFrame  = Math.max(0, state.frames.indexOf(curRef));
+    syncTimingUI();
+    renderFrameStrip();
+    if (!state.playing) renderStageImmediate();
+  }
+  function renderFrameThumb(i) {
+    const thumb = document.querySelector(`.frameThumb[data-idx="${i}"]`);
+    if (!thumb) return;
+    const mini = thumb.querySelector('.mini');
+    mini.querySelectorAll('div').forEach((d, j) => {
+      d.style.background = state.frames[i].cells[j];
+    });
+  }
+
+  // ============= 애니메이션 루프 =============
+  function frameDurationMs() {
+    const t = state.timing;
+    if (t.mode === 'ms') return Math.max(10, t.value);
+    const beats = t.base * modifierMultiplier(t.modifier);
+    return (60000 / state.bpm) * beats;
+  }
+
+  function tick() {
+    requestAnimationFrame(tick);
+    if (state.frames.length === 0 || !state.playing) return;
+    const now = performance.now();
+
+    // 현재 프레임의 dur를 누적 비교하면서 늦은 만큼 다중 전진
+    const dur = frameDurationMs();
+    let safety = 0;
+    while (safety++ < 64) {
+      const elapsed = now - state.frameStartTime;
+      if (elapsed < dur) break;
+      state.frameStartTime += dur;
+      state.currentFrame = (state.currentFrame + 1) % state.frames.length;
+    }
+
+    const frame = state.frames[state.currentFrame];
+    const elapsed = now - state.frameStartTime;
+    const progress = dur > 0 ? Math.min(1, elapsed / dur) : 0;
+
+    if (state.interpolate && state.frames.length > 1) {
+      const next = state.frames[(state.currentFrame + 1) % state.frames.length];
+      renderInterpolated(frame.cells, next.cells, progress);
+    } else {
+      renderStage(frame.cells);
+    }
+  }
+  requestAnimationFrame(tick);
+
+  // 프레임 strip 재생 중 표시 갱신
+  setInterval(() => {
+    if (state.playing && state.frames.length > 1) {
+      document.querySelectorAll('.frameThumb').forEach((t, i) => {
+        t.classList.toggle('playing', i === state.currentFrame);
+      });
+    }
+  }, 80);
+
+  // ============= 컨트롤 =============
+  document.getElementById('bpm').addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v > 0) state.bpm = v;
+  });
+
+  // Tap tempo
+  let tapTimes = [];
+  document.getElementById('tapBpm').addEventListener('click', () => {
+    const now = performance.now();
+    tapTimes.push(now);
+    if (tapTimes.length > 6) tapTimes.shift();
+    if (tapTimes.length >= 2) {
+      const iv = [];
+      for (let i = 1; i < tapTimes.length; i++) iv.push(tapTimes[i]-tapTimes[i-1]);
+      const avg = iv.reduce((a,b)=>a+b,0)/iv.length;
+      if (avg > 200 && avg < 1500) {
+        state.bpm = Math.round((60000/avg)*10)/10;
+        document.getElementById('bpm').value = state.bpm;
+      }
+    }
+    clearTimeout(window._tapReset);
+    window._tapReset = setTimeout(() => tapTimes = [], 2000);
+  });
+
+  document.querySelectorAll('[data-size]').forEach(b => {
+    b.addEventListener('click', () => {
+      const s = parseInt(b.dataset.size);
+      if (s === state.gridSize) return;
+      pushHistory();
+      state.gridSize = s;
+      document.querySelectorAll('[data-size]').forEach(x =>
+        x.classList.toggle('active', x.dataset.size === b.dataset.size));
+      rebuildGrid();
+    });
+  });
+
+  const interpBtn = document.getElementById('interpBtn');
+  function updateInterpUI() {
+    interpBtn.classList.toggle('on', state.interpolate);
+    interpBtn.textContent = state.interpolate
+      ? t('interp.soft')
+      : t('interp.hard');
+  }
+  interpBtn.addEventListener('click', () => {
+    state.interpolate = !state.interpolate;
+    updateInterpUI();
+  });
+  updateInterpUI();
+
+  const perfBtn = document.getElementById('perfBtn');
+  perfBtn.addEventListener('click', () => {
+    state.perform = !state.perform;
+    document.body.classList.toggle('perform', state.perform);
+    perfBtn.textContent = state.perform ? t('perf.edit') : t('perf.live');
+    perfBtn.classList.toggle('on', state.perform);
+  });
+
+  const softBtn = document.getElementById('softBtn');
+  softBtn.addEventListener('click', () => {
+    state.soft = !state.soft;
+    document.body.classList.toggle('soft', state.soft);
+    softBtn.textContent = state.soft ? 'Soft Blur ON' : 'Soft Blur OFF';
+    softBtn.classList.toggle('on', state.soft);
+  });
+
+  const playBtn = document.getElementById('playBtn');
+  playBtn.addEventListener('click', () => {
+    state.playing = !state.playing;
+    playBtn.textContent = state.playing ? '⏸' : '▶';
+    if (state.playing) {
+      state.frameStartTime = performance.now();
+    } else {
+      // 정지 시 편집 중인 프레임 보여주기
+      state.currentFrame = state.editingFrame;
+      renderStageImmediate();
+    }
+  });
+  playBtn.textContent = state.playing ? '⏸' : '▶'; // 기본은 정지
+
+  // 프레임 버튼
+  document.getElementById('frameDup').addEventListener('click', () => {
+    pushHistory();
+    state.frames.splice(state.editingFrame + 1, 0, makeFrame());
+    state.editingFrame++;
+    if (!state.playing) state.currentFrame = state.editingFrame;
+    syncTimingUI();
+    renderFrameStrip();
+    renderStageImmediate();
+  });
+  document.getElementById('frameClone').addEventListener('click', () => {
+    pushHistory();
+    const copy = JSON.parse(JSON.stringify(state.frames[state.editingFrame]));
+    state.frames.splice(state.editingFrame + 1, 0, copy);
+    state.editingFrame++;
+    if (!state.playing) state.currentFrame = state.editingFrame;
+    syncTimingUI();
+    renderFrameStrip();
+    renderStageImmediate();
+  });
+  document.getElementById('frameDel').addEventListener('click', () => {
+    if (state.frames.length <= 1) return;
+    pushHistory();
+    state.frames.splice(state.editingFrame, 1);
+    if (state.editingFrame >= state.frames.length) state.editingFrame = state.frames.length - 1;
+    if (state.currentFrame >= state.frames.length) state.currentFrame = 0;
+    syncTimingUI();
+    renderFrameStrip();
+    renderStageImmediate();
+  });
+  document.getElementById('frameReset').addEventListener('click', () => {
+    if (!confirm(t('msg.confirmReset'))) return;
+    pushHistory();
+    state.frames = [makeFrame()];
+    state.currentFrame = 0;
+    state.editingFrame = 0;
+    state.frameStartTime = performance.now();
+    renderFrameStrip();
+    renderStageImmediate();
+  });
+
+  // 타이밍
+  const tModeSel = document.getElementById('tMode');
+  const tBpmRow = document.getElementById('tBpmRow');
+  const tMsRow = document.getElementById('tMsRow');
+  const tMsVal = document.getElementById('tMsValue');
+
+  const tModRow = document.getElementById('tModRow');
+  const modDot = document.getElementById('modDot');
+  const modTriple = document.getElementById('modTriple');
+
+  function syncTimingUI() {
+    const t = state.timing;
+    tModeSel.value = t.mode;
+    if (t.mode === 'bpm') {
+      tBpmRow.style.display = '';
+      tModRow.style.display = '';
+      tMsRow.style.display = 'none';
+      tBpmSel.value = String(t.base);
+      modDot.checked = t.modifier === 'dot';
+      modTriple.checked = t.modifier === 'triple';
+    } else {
+      tBpmRow.style.display = 'none';
+      tModRow.style.display = 'none';
+      tMsRow.style.display = '';
+      tMsVal.value = t.value;
+    }
+  }
+  syncTimingUI();
+
+  tModeSel.addEventListener('change', () => {
+    if (tModeSel.value === 'bpm') {
+      state.timing = { mode: 'bpm', base: 0.5, modifier: 'normal', value: 200 };
+    } else {
+      state.timing = { mode: 'ms', base: 0.5, modifier: 'normal', value: 200 };
+    }
+    syncTimingUI();
+  });
+  tBpmSel.addEventListener('change', () => {
+    state.timing.base = parseFloat(tBpmSel.value);
+  });
+  tMsVal.addEventListener('input', () => {
+    state.timing.value = Math.max(10, parseFloat(tMsVal.value) || 200);
+  });
+  modDot.addEventListener('change', () => {
+    if (modDot.checked) {
+      modTriple.checked = false;  // 상호 배타
+      state.timing.modifier = 'dot';
+    } else {
+      state.timing.modifier = 'normal';
+    }
+  });
+  modTriple.addEventListener('change', () => {
+    if (modTriple.checked) {
+      modDot.checked = false;
+      state.timing.modifier = 'triple';
+    } else {
+      state.timing.modifier = 'normal';
+    }
+  });
+
+  // 컬러 픽커
+  const activeColor = document.getElementById('activeColor');
+  const activeHex = document.getElementById('activeHex');
+  activeColor.addEventListener('input', () => {
+    state.activeColor = activeColor.value;
+    activeHex.value = activeColor.value;
+    updateSwatchActive();
+  });
+  activeHex.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(activeHex.value)) {
+      state.activeColor = activeHex.value;
+      activeColor.value = activeHex.value;
+      updateSwatchActive();
+    }
+  });
+
+  // 팔레트 스와치
+  const paletteGrid = document.getElementById('paletteSwatch');
+  DEFAULT_PALETTE.forEach(col => {
+    const b = document.createElement('button');
+    b.className = 'swatch';
+    b.style.background = col;
+    b.dataset.color = col;
+    b.addEventListener('click', () => {
+      state.activeColor = col;
+      activeColor.value = col;
+      activeHex.value = col;
+      updateSwatchActive();
+    });
+    paletteGrid.appendChild(b);
+  });
+  function updateSwatchActive() {
+    document.querySelectorAll('.swatch').forEach(s =>
+      s.classList.toggle('active', s.dataset.color === state.activeColor));
+  }
+  updateSwatchActive();
+
+  // Fill / Clear / Invert
+  document.getElementById('fillAll').addEventListener('click', () => {
+    pushHistory();
+    state.frames[state.editingFrame].cells.fill(state.activeColor);
+    renderFrameThumb(state.editingFrame);
+    if (!state.playing) renderStageImmediate();
+  });
+  document.getElementById('clearFrame').addEventListener('click', () => {
+    pushHistory();
+    state.frames[state.editingFrame].cells.fill('#000000');
+    renderFrameThumb(state.editingFrame);
+    if (!state.playing) renderStageImmediate();
+  });
+  document.getElementById('invertFrame').addEventListener('click', () => {
+    pushHistory();
+    const cells = state.frames[state.editingFrame].cells;
+    for (let i = 0; i < cells.length; i++) {
+      const c = hexToRgb(cells[i]);
+      cells[i] = rgbToHex([255-c[0], 255-c[1], 255-c[2]]);
+    }
+    renderFrameThumb(state.editingFrame);
+    if (!state.playing) renderStageImmediate();
+  });
+
+  // ============= 핫큐 =============
+  // 키보드 모드: 10슬롯 (1~9, 0)
+  const HOTCUE_KEY_KBD  = 'lroom_v2_hotcues_kbd';
+  const HOTCUE_KEY_MIDI = 'lroom_v2_hotcues_midi';
+  const HOTCUE_COUNT_KBD  = 10;
+  const HOTCUE_COUNT_MIDI = 16;
+  const MIDI_BANKS = ['A', 'B', 'C'];
+
+  // 구버전 'lroom_v2_hotcues' (8슬롯) 마이그레이션
+  let hotcues = new Array(HOTCUE_COUNT_KBD).fill(null);
+  try {
+    const rawKbd = localStorage.getItem(HOTCUE_KEY_KBD);
+    if (rawKbd) {
+      const p = JSON.parse(rawKbd);
+      if (Array.isArray(p) && p.length === HOTCUE_COUNT_KBD) hotcues = p;
+    } else {
+      // 구버전 마이그레이션
+      const rawOld = localStorage.getItem('lroom_v2_hotcues');
+      if (rawOld) {
+        const p = JSON.parse(rawOld);
+        if (Array.isArray(p)) {
+          for (let i = 0; i < Math.min(p.length, HOTCUE_COUNT_KBD); i++) hotcues[i] = p[i];
+        }
+      }
+    }
+  } catch(e) {}
+
+  let hotcuesMidi = { A: new Array(16).fill(null), B: new Array(16).fill(null), C: new Array(16).fill(null) };
+  try {
+    const rawMidi = localStorage.getItem(HOTCUE_KEY_MIDI);
+    if (rawMidi) {
+      const p = JSON.parse(rawMidi);
+      if (p && typeof p === 'object') {
+        MIDI_BANKS.forEach(b => { if (Array.isArray(p[b]) && p[b].length === 16) hotcuesMidi[b] = p[b]; });
+      }
+    }
+  } catch(e) {}
+
+  // ---- MIDI 상태 ----
+  const midi = {
+    enabled: false,
+    access: null,
+    input: null,
+    offset: 36,
+    bank: 'A',
+  };
+
+  // ---- 공통 cue 적용 ----
+  function applyCue(cue) {
+    if (!cue) return;
+    pushHistory();
+    state.gridSize = cue.gridSize;
+    state.interpolate = cue.interpolate;
+    let rawTiming = cue.timing || (cue.frames[0] && cue.frames[0].timing) || null;
+    if (rawTiming) {
+      state.timing = JSON.parse(JSON.stringify(rawTiming));
+      if (state.timing.mode === 'bpm' && state.timing.base === undefined) {
+        const bm = resolveBaseMod(state.timing.value || 0.5);
+        state.timing.base = bm.base; state.timing.modifier = bm.modifier;
+      }
+      if (state.timing.modifier === undefined) state.timing.modifier = 'normal';
+    }
+    state.frames = cue.frames.map(f => ({ cells: (f.cells || []).slice() }));
+    state.currentFrame = 0; state.editingFrame = 0;
+    state.frameStartTime = performance.now();
+    document.querySelectorAll('[data-size]').forEach(x =>
+      x.classList.toggle('active', parseInt(x.dataset.size) === state.gridSize));
+    interpBtn.classList.toggle('on', state.interpolate);
+    interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard');
+    syncTimingUI(); rebuildGrid();
+  }
+
+  function makeCueSnapshot() {
+    return {
+      gridSize: state.gridSize, interpolate: state.interpolate,
+      timing: JSON.parse(JSON.stringify(state.timing)),
+      frames: state.frames.map(f => ({ cells: f.cells.slice() })),
+    };
+  }
+
+  // ---- 키보드 모드 ----
+  function saveHotcue(i) {
+    hotcues[i] = makeCueSnapshot();
+    try { localStorage.setItem(HOTCUE_KEY_KBD, JSON.stringify(hotcues)); } catch(e) {}
+    renderHotcues();
+  }
+  function recallHotcue(i) {
+    applyCue(hotcues[i]);
+    flashHotcuePad(`kbd-${i}`);
+  }
+  function clearHotcue(i) {
+    hotcues[i] = null;
+    try { localStorage.setItem(HOTCUE_KEY_KBD, JSON.stringify(hotcues)); } catch(e) {}
+    renderHotcues();
+  }
+
+  // ---- MIDI 모드 ----
+  function saveHotcueMidi(bank, i) {
+    hotcuesMidi[bank][i] = makeCueSnapshot();
+    try { localStorage.setItem(HOTCUE_KEY_MIDI, JSON.stringify(hotcuesMidi)); } catch(e) {}
+    renderHotcues();
+  }
+  function recallHotcueMidi(bank, i) {
+    applyCue(hotcuesMidi[bank][i]);
+    flashHotcuePad(`midi-${bank}-${i}`);
+  }
+  function clearHotcueMidi(bank, i) {
+    hotcuesMidi[bank][i] = null;
+    try { localStorage.setItem(HOTCUE_KEY_MIDI, JSON.stringify(hotcuesMidi)); } catch(e) {}
+    renderHotcues();
+  }
+
+  function flashHotcuePad(key) {
+    const el = document.querySelector(`.hotcue[data-key="${key}"]`);
+    if (!el) return;
+    el.style.outline = '2px solid #fff';
+    setTimeout(() => el.style.outline = '', 200);
+  }
+
+  // ---- 미리보기 빌더 ----
+  function buildHotcuePad(cue, label, onSave, onRecall, onClear, dataKey) {
+    const el = document.createElement('div');
+    el.className = 'hotcue';
+    el.dataset.key = dataKey;
+    if (!cue) {
+      el.innerHTML = `<div class="num">${label}</div><div style="opacity:0.25;font-size:10px">—</div>`;
+    } else {
+      const f0 = cue.frames[0];
+      const sz = cue.gridSize;
+      const prev = document.createElement('div');
+      prev.className = 'preview';
+      prev.style.gridTemplateColumns = `repeat(${sz},1fr)`;
+      f0.cells.forEach(c => { const d = document.createElement('div'); d.style.background = c; prev.appendChild(d); });
+      el.appendChild(prev);
+      const tag = document.createElement('div');
+      tag.className = 'num';
+      tag.textContent = `${label} · ${cue.frames.length}f`;
+      tag.style.cssText = 'color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.7)';
+      el.appendChild(tag);
+    }
+    el.addEventListener('click', ev => { if (ev.shiftKey || !cue) onSave(); else onRecall(); });
+    el.addEventListener('contextmenu', ev => { ev.preventDefault(); onClear(); });
+    return el;
+  }
+
+  function renderHotcues() {
+    const wrap = document.getElementById('hotcueGrid');
+    wrap.innerHTML = '';
+    if (!midi.enabled) {
+      // 키보드 모드: 5×2, 슬롯 0~9 (레이블: 1~9, 0)
+      wrap.classList.remove('midi-mode');
+      for (let i = 0; i < HOTCUE_COUNT_KBD; i++) {
+        const label = i < 9 ? String(i + 1) : '0';
+        wrap.appendChild(buildHotcuePad(
+          hotcues[i], label,
+          () => saveHotcue(i),
+          () => recallHotcueLive(i),
+          () => clearHotcue(i),
+          `kbd-${i}`
+        ));
+      }
+    } else {
+      // MIDI 모드: 4×4, 현재 뱅크
+      wrap.classList.add('midi-mode');
+      const bank = hotcuesMidi[midi.bank];
+      for (let i = 0; i < HOTCUE_COUNT_MIDI; i++) {
+        wrap.appendChild(buildHotcuePad(
+          bank[i], String(i + 1),
+          () => saveHotcueMidi(midi.bank, i),
+          () => recallHotcueMidiLive(midi.bank, i),
+          () => clearHotcueMidi(midi.bank, i),
+          `midi-${midi.bank}-${i}`
+        ));
+      }
+    }
+  }
+  // ============= 기본 프리셋 시드 =============
+  // 셀 헬퍼 (8×8 기준 cells 배열 생성)
+  function fillC(color) { return new Array(64).fill(color); }
+  function paintCol(cells, col, color) {
+    for (let r = 0; r < 8; r++) cells[r*8 + col] = color;
+    return cells;
+  }
+  function paintRow(cells, row, color) {
+    for (let c = 0; c < 8; c++) cells[row*8 + c] = color;
+    return cells;
+  }
+  function paintRect(cells, r1, c1, r2, c2, color) {
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++)
+        cells[r*8 + c] = color;
+    return cells;
+  }
+  function mkPreset(frames, opts) {
+    return {
+      gridSize: 8,
+      interpolate: !!(opts && opts.interpolate),
+      timing: (opts && opts.timing) || { mode: 'bpm', base: 0.5, modifier: 'normal', value: 200 },
+      frames: frames.map(cells => ({ cells })),
+    };
+  }
+
+  // 기본 프리셋 8개 (페스티벌·셀카 라이트 자주 쓰는 패턴)
+  function buildDefaultPresets() {
+    return [
+      // 1. Wash White — 정적 페이스 라이트 (1프레임)
+      mkPreset([fillC('#ffffff')],
+        { timing: { mode: 'bpm', base: 1, modifier: 'normal', value: 200 } }),
+
+      // 2. Strobe White — 1/16 하드 스트로브
+      mkPreset([fillC('#ffffff'), fillC('#000000')],
+        { timing: { mode: 'bpm', base: 0.25, modifier: 'normal', value: 200 } }),
+
+      // 3. Pink Fade — 핫핑크 부드러운 호흡 (보간 ON)
+      mkPreset([fillC('#ff20a0'), fillC('#000000')],
+        { interpolate: true, timing: { mode: 'bpm', base: 1, modifier: 'normal', value: 200 } }),
+
+      // 4. Cyan Fade — 시안 호흡 (보간 ON)
+      mkPreset([fillC('#20e0d0'), fillC('#000000')],
+        { interpolate: true, timing: { mode: 'bpm', base: 1, modifier: 'normal', value: 200 } }),
+
+      // 5. Police — 좌 빨강 / 우 파랑 반전 교대 (각 프레임에 양쪽 색 같이 그림)
+      mkPreset([
+        paintRect(paintRect(fillC('#000000'), 0,0, 7,3, '#ff2040'), 0,4, 7,7, '#2040ff'),
+        paintRect(paintRect(fillC('#000000'), 0,0, 7,3, '#2040ff'), 0,4, 7,7, '#ff2040'),
+      ], { timing: { mode: 'bpm', base: 0.5, modifier: 'normal', value: 200 } }),
+
+      // 6. Chase 8 Cols — 흰 컬럼이 좌→우 순차 (8프레임)
+      mkPreset([0,1,2,3,4,5,6,7].map(col => paintCol(fillC('#000000'), col, '#ffffff')),
+        { timing: { mode: 'bpm', base: 0.25, modifier: 'normal', value: 200 } }),
+
+      // 7. Rainbow Wash — 6색 페이드 사이클 (보간 ON)
+      mkPreset(
+        ['#ff2040','#ff8030','#ffe020','#40ff20','#2090ff','#c020ff'].map(c => fillC(c)),
+        { interpolate: true, timing: { mode: 'bpm', base: 1, modifier: 'normal', value: 200 } }),
+
+      // 8. Drop Strobe — 1/32 초고속 스트로브 (드랍용)
+      mkPreset([fillC('#ffffff'), fillC('#000000')],
+        { timing: { mode: 'bpm', base: 0.125, modifier: 'normal', value: 200 } }),
+    ];
+  }
+
+  // ============= 프리셋 라이브러리 =============
+  // 헬퍼: 상하 반분 셀 배열
+  function halfSplit(topColor, botColor) {
+    const c = fillC('#000000');
+    for (let r = 0; r < 4; r++) paintRow(c, r, topColor);
+    for (let r = 4; r < 8; r++) paintRow(c, r, botColor);
+    return c;
+  }
+  // 헬퍼: 센터 사각형 (2,2)~(5,5)
+  function centerRect(color) {
+    return paintRect(fillC('#000000'), 2, 2, 5, 5, color);
+  }
+  // 헬퍼: 테두리만
+  function borderOnly(color) {
+    const c = fillC('#000000');
+    paintRow(c, 0, color); paintRow(c, 7, color);
+    paintCol(c, 0, color); paintCol(c, 7, color);
+    return c;
+  }
+  // 헬퍼: 컬럼 인터리브 (홀/짝 컬럼 색)
+  function colInterleave(a, b) {
+    const c = fillC('#000000');
+    for (let col = 0; col < 8; col++) paintCol(c, col, col % 2 === 0 ? a : b);
+    return c;
+  }
+
+  const bpm1   = { mode:'bpm', base:1,    modifier:'normal', value:200 };
+  const bpm2   = { mode:'bpm', base:2,    modifier:'normal', value:200 };
+  const bpm05  = { mode:'bpm', base:0.5,  modifier:'normal', value:200 };
+  const bpm025 = { mode:'bpm', base:0.25, modifier:'normal', value:200 };
+  const bpm0125= { mode:'bpm', base:0.125,modifier:'normal', value:200 };
+  const bpm4   = { mode:'bpm', base:4,    modifier:'normal', value:200 };
+
+  const PRESET_LIBRARY = [
+    // ─── 스태틱 워시 ───
+    { cat: 'cat.wash', name: 'Warm Face',    desc: 'd.warm', swatch: '#ffe8c8',
+      build: () => mkPreset([fillC('#ffe8c8')], { timing: bpm4 }) },
+    { cat: 'cat.wash', name: 'Cool White',   desc: 'd.cool',   swatch: '#ffffff',
+      build: () => mkPreset([fillC('#ffffff')], { timing: bpm4 }) },
+    { cat: 'cat.wash', name: 'Golden Hour',  desc: 'd.golden',           swatch: '#ffb060',
+      build: () => mkPreset([fillC('#ffb060')], { timing: bpm4 }) },
+    { cat: 'cat.wash', name: 'UV Purple',    desc: 'd.uv',         swatch: '#9020ff',
+      build: () => mkPreset([fillC('#9020ff')], { timing: bpm4 }) },
+    { cat: 'cat.wash', name: 'Deep Red',     desc: 'd.deepred',         swatch: '#c01020',
+      build: () => mkPreset([fillC('#c01020')], { timing: bpm4 }) },
+    { cat: 'cat.wash', name: 'Blackout',     desc: 'd.black',              swatch: '#000000',
+      build: () => mkPreset([fillC('#000000')], { timing: bpm4 }) },
+
+    // ─── 브레스 / 펄스 ───
+    { cat: 'cat.breathe', name: 'Pink Pulse',   desc: 'd.pinkp',    swatch: '#ff20a0',
+      build: () => mkPreset([fillC('#ff20a0'), fillC('#000000')], { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.breathe', name: 'Cyan Pulse',   desc: 'd.cyanp',       swatch: '#20e0d0',
+      build: () => mkPreset([fillC('#20e0d0'), fillC('#000000')], { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.breathe', name: 'Purple Pulse', desc: 'd.purplep',       swatch: '#c020ff',
+      build: () => mkPreset([fillC('#c020ff'), fillC('#000000')], { interpolate:true, timing: bpm2 }) },
+    { cat: 'cat.breathe', name: 'Blue Pulse',   desc: 'd.bluep',       swatch: '#2040ff',
+      build: () => mkPreset([fillC('#2040ff'), fillC('#000000')], { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.breathe', name: 'Red Pulse',    desc: 'd.redp',       swatch: '#ff2040',
+      build: () => mkPreset([fillC('#ff2040'), fillC('#000000')], { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.breathe', name: 'Amber Pulse',  desc: 'd.amberp',       swatch: '#ff8030',
+      build: () => mkPreset([fillC('#ff8030'), fillC('#000000')], { interpolate:true, timing: bpm1 }) },
+
+    // ─── 스트로브 ───
+    { cat: 'cat.strobe', name: 'Strobe 1/4',  desc: 'd.st4',    swatch: '#ffffff',
+      build: () => mkPreset([fillC('#ffffff'), fillC('#000000')], { timing: { mode:'bpm', base:1, modifier:'normal', value:200 } }) },
+    { cat: 'cat.strobe', name: 'Strobe 1/8',  desc: 'd.st8',  swatch: '#ffffff',
+      build: () => mkPreset([fillC('#ffffff'), fillC('#000000')], { timing: bpm05 }) },
+    { cat: 'cat.strobe', name: 'Strobe 1/16', desc: 'd.st16',    swatch: '#ffffff',
+      build: () => mkPreset([fillC('#ffffff'), fillC('#000000')], { timing: bpm025 }) },
+    { cat: 'cat.strobe', name: 'Drop Strobe', desc: 'd.stdrop', swatch: '#ffffff',
+      build: () => mkPreset([fillC('#ffffff'), fillC('#000000')], { timing: bpm0125 }) },
+    { cat: 'cat.strobe', name: 'Pink Strobe', desc: 'd.stpink',      swatch: '#ff20a0',
+      build: () => mkPreset([fillC('#ff20a0'), fillC('#000000')], { timing: bpm025 }) },
+    { cat: 'cat.strobe', name: 'Blue Strobe', desc: 'd.stblue',      swatch: '#2040ff',
+      build: () => mkPreset([fillC('#2040ff'), fillC('#000000')], { timing: bpm025 }) },
+
+    // ─── 패턴 ───
+    { cat: 'cat.pattern', name: 'Police',     desc: 'd.police',       swatch: '#ff2040',
+      build: () => mkPreset([
+        paintRect(paintRect(fillC('#000000'),0,0,7,3,'#ff2040'),0,4,7,7,'#2040ff'),
+        paintRect(paintRect(fillC('#000000'),0,0,7,3,'#2040ff'),0,4,7,7,'#ff2040'),
+      ], { timing: bpm05 }) },
+    { cat: 'cat.pattern', name: 'Col Chase →', desc: 'd.colchase',      swatch: '#ffffff',
+      build: () => mkPreset([0,1,2,3,4,5,6,7].map(c => paintCol(fillC('#000000'),c,'#ffffff')), { timing: bpm025 }) },
+    { cat: 'cat.pattern', name: 'Row Chase ↓', desc: 'd.rowchase',   swatch: '#ffffff',
+      build: () => mkPreset([0,1,2,3,4,5,6,7].map(r => paintRow(fillC('#000000'),r,'#ffffff')), { timing: bpm025 }) },
+    { cat: 'cat.pattern', name: 'Interleave',  desc: 'd.interleave',       swatch: '#ff20a0',
+      build: () => mkPreset([colInterleave('#ff20a0','#2040ff'), colInterleave('#2040ff','#ff20a0')], { timing: bpm05 }) },
+    { cat: 'cat.pattern', name: 'Half Split',  desc: 'd.halfsplit',   swatch: '#ffe8c8',
+      build: () => mkPreset([halfSplit('#ffe8c8','#2090ff')], { timing: bpm4 }) },
+    { cat: 'cat.pattern', name: 'Center',      desc: 'd.center',      swatch: '#ffffff',
+      build: () => mkPreset([centerRect('#ffffff')], { timing: bpm4 }) },
+    { cat: 'cat.pattern', name: 'Border',      desc: 'd.border',    swatch: '#c020ff',
+      build: () => mkPreset([borderOnly('#c020ff')], { timing: bpm4 }) },
+
+    // ─── 컬러 사이클 ───
+    { cat: 'cat.cycle', name: 'Rainbow',    desc: 'd.rainbow',    swatch: '#ff2040',
+      build: () => mkPreset(
+        ['#ff2040','#ff8030','#ffe020','#40ff20','#2090ff','#c020ff'].map(c => fillC(c)),
+        { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.cycle', name: 'Sunset',     desc: 'd.sunset',    swatch: '#ff4020',
+      build: () => mkPreset(
+        ['#ff2040','#ff6020','#ffb060','#ffe020'].map(c => fillC(c)),
+        { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.cycle', name: 'Ocean',      desc: 'd.ocean',       swatch: '#20e0d0',
+      build: () => mkPreset(
+        ['#20e0d0','#2090ff','#2040ff','#c020ff'].map(c => fillC(c)),
+        { interpolate:true, timing: bpm1 }) },
+    { cat: 'cat.cycle', name: 'Rave',       desc: 'd.rave',       swatch: '#ff20a0',
+      build: () => mkPreset(
+        ['#ff20a0','#20e0d0','#ffe020','#c020ff'].map(c => fillC(c)),
+        { interpolate:true, timing: bpm05 }) },
+    { cat: 'cat.cycle', name: 'Fire',       desc: 'd.fire',  swatch: '#ff6020',
+      build: () => mkPreset(
+        ['#ff6020','#ff2010','#ff8030','#c01000','#ff4018'].map(c => fillC(c)),
+        { timing: bpm025 }) },
+    { cat: 'cat.cycle', name: 'Ice',        desc: 'd.ice',        swatch: '#c0e8ff',
+      build: () => mkPreset(
+        [fillC('#c0e8ff'), fillC('#2090ff'), fillC('#ffffff'), fillC('#2040ff')],
+        { interpolate:true, timing: bpm1 }) },
+  ];
+
+  // 카테고리 순서
+  const LIB_CATS = ['cat.wash','cat.breathe','cat.strobe','cat.pattern','cat.cycle'];
+
+  function loadPreset(p) {
+    pushHistory();
+    const preset = p.build();
+    state.gridSize    = preset.gridSize;
+    state.interpolate = preset.interpolate;
+    state.timing = JSON.parse(JSON.stringify(preset.timing));
+    state.frames = preset.frames.map(f => ({ cells: f.cells.slice() }));
+    state.currentFrame = 0;
+    state.editingFrame = 0;
+    state.frameStartTime = performance.now();
+    document.querySelectorAll('[data-size]').forEach(x =>
+      x.classList.toggle('active', parseInt(x.dataset.size) === state.gridSize));
+    interpBtn.classList.toggle('on', state.interpolate);
+    interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard');
+    syncTimingUI();
+    rebuildGrid();
+  }
+
+  function populatePresetSelect() {
+    const sel = document.getElementById('presetSel');
+    sel.innerHTML = '';
+
+    // Custom (기본값 — 빈 검정 프레임)
+    const customOpt = document.createElement('option');
+    customOpt.value = '-1';
+    customOpt.textContent = 'Custom';
+    sel.appendChild(customOpt);
+
+    // 카테고리별 optgroup
+    LIB_CATS.forEach(cat => {
+      const items = PRESET_LIBRARY.filter(p => p.cat === cat);
+      if (!items.length) return;
+      const group = document.createElement('optgroup');
+      group.label = t(cat);
+      items.forEach(p => {
+        const idx = PRESET_LIBRARY.indexOf(p);
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        opt.textContent = `${p.name}  —  ${t(p.desc)}`;
+        group.appendChild(opt);
+      });
+      sel.appendChild(group);
+    });
+
+    sel.value = '-1';  // 기본 선택: Custom
+
+    sel.addEventListener('change', () => {
+      const idx = parseInt(sel.value);
+      if (idx === -1) {
+        // Custom: 빈 검정 프레임 1개로 초기화
+        pushHistory();
+        state.frames = [makeFrame()];
+        state.currentFrame = 0;
+        state.editingFrame = 0;
+        state.frameStartTime = performance.now();
+        state.interpolate = false;
+        interpBtn.classList.remove('on');
+        interpBtn.textContent = t('interp.hard');
+        renderFrameStrip();
+        renderStageImmediate();
+      } else {
+        loadPreset(PRESET_LIBRARY[idx]);
+      }
+    });
+  }
+
+  // 기본 핫큐 복원 버튼
+  document.getElementById('libResetBtn').addEventListener('click', () => {
+    if (!confirm(t('msg.confirmLibReset'))) return;
+    const presets = buildDefaultPresets();
+    for (let i = 0; i < HOTCUE_COUNT_KBD; i++) hotcues[i] = presets[i] || null;
+    try { localStorage.setItem(HOTCUE_KEY_KBD, JSON.stringify(hotcues)); } catch(e) {}
+    renderHotcues();
+  });
+
+  // 첫 실행 시드
+  const SEED_KEY = 'lroom_v2_seeded';
+  if (!localStorage.getItem(SEED_KEY) && hotcues.every(h => h === null)) {
+    const presets = buildDefaultPresets();
+    for (let i = 0; i < presets.length && i < HOTCUE_COUNT_KBD; i++) hotcues[i] = presets[i];
+    try {
+      localStorage.setItem(HOTCUE_KEY_KBD, JSON.stringify(hotcues));
+      localStorage.setItem(SEED_KEY, '1');
+    } catch(e) {}
+  }
+
+  renderHotcues();
+  populatePresetSelect();
+
+  // ============= LR1 코드 =============
+  async function compress(str) {
+    const cs = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+    const buf = await new Response(cs).arrayBuffer();
+    let s = '';
+    new Uint8Array(buf).forEach(b => s += String.fromCharCode(b));
+    return btoa(s);
+  }
+  async function decompress(b64) {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const ds = new Blob([arr]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(ds).text();
+  }
+
+  async function exportCode() {
+    const t = state.timing;
+    const tArr = t.mode === 'bpm'
+      ? ['b', t.base, t.modifier]
+      : ['m', t.value];
+    const payload = {
+      v: 2,
+      g: state.gridSize,
+      i: state.interpolate ? 1 : 0,
+      t: tArr,
+      f: state.frames.map(f => f.cells),
+    };
+    const json = JSON.stringify(payload);
+    return 'LR1:' + await compress(json);
+  }
+  async function importCode(code) {
+    code = code.trim();
+    if (!code.startsWith('LR1:')) throw new Error(t('err.notLR1'));
+    const json = await decompress(code.slice(4));
+    const obj = JSON.parse(json);
+    pushHistory();
+    state.gridSize = obj.g === 4 ? 4 : 8;
+    state.interpolate = !!obj.i;
+    // 타이밍 복원
+    if (obj.t) {
+      if (obj.t[0] === 'b') {
+        if (obj.t.length >= 3) {
+          state.timing = { mode: 'bpm', base: obj.t[1], modifier: obj.t[2] || 'normal', value: 200 };
+        } else {
+          // v2 초기 포맷: ['b', resolvedValue]
+          const bm = resolveBaseMod(obj.t[1]);
+          state.timing = { mode: 'bpm', base: bm.base, modifier: bm.modifier, value: 200 };
+        }
+      } else {
+        state.timing = { mode: 'ms', base: 0.5, modifier: 'normal', value: obj.t[1] };
+      }
+    } else if (obj.f[0] && obj.f[0].t) {
+      // v1 옛 포맷 (프레임 안에 t)
+      const t0 = obj.f[0].t;
+      if (t0[0] === 'b') {
+        const bm = resolveBaseMod(t0[1]);
+        state.timing = { mode: 'bpm', base: bm.base, modifier: bm.modifier, value: 200 };
+      } else {
+        state.timing = { mode: 'ms', base: 0.5, modifier: 'normal', value: t0[1] };
+      }
+    }
+    state.frames = obj.f.map(ff => ({
+      cells: Array.isArray(ff) ? ff : ff.c,
+    }));
+    state.currentFrame = 0;
+    state.editingFrame = 0;
+    state.frameStartTime = performance.now();
+    document.querySelectorAll('[data-size]').forEach(x =>
+      x.classList.toggle('active', parseInt(x.dataset.size) === state.gridSize));
+    interpBtn.classList.toggle('on', state.interpolate);
+    interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard');
+    syncTimingUI();
+    rebuildGrid();
+  }
+
+  document.getElementById('codeCopy').addEventListener('click', async () => {
+    try {
+      const code = await exportCode();
+      document.getElementById('codeArea').value = code;
+      await navigator.clipboard.writeText(code);
+      const b = document.getElementById('codeCopy');
+      const orig = b.textContent;
+      b.textContent = t('msg.codeCopied', { n: code.length });
+      setTimeout(() => b.textContent = orig, 1500);
+    } catch (e) {
+      alert(t('msg.codeGenFail') + e.message);
+    }
+  });
+  document.getElementById('codeLoad').addEventListener('click', async () => {
+    const code = document.getElementById('codeArea').value.trim();
+    if (!code) return alert(t('msg.codeEmpty'));
+    try { await importCode(code); }
+    catch (e) { alert(t('msg.loadFail') + e.message); }
+  });
+
+  // ============= 커뮤니티 =============
+  // Turnstile 사이트키: 발급 후 아래 따옴표 안에 붙여넣으면 봇 검증 활성화
+  const TURNSTILE_SITEKEY = '';
+  const COMM = {
+    sort: 'new',
+    offset: 0,
+    q: '',
+    byId: {},
+    online: location.protocol === 'http:' || location.protocol === 'https:',
+  };
+  let tsWidgetId = null;
+  const commListEl = document.getElementById('commList');
+  const commMsgEl  = document.getElementById('commMsg');
+
+  function commSetMsg(t, cls) {
+    commMsgEl.textContent = t || '';
+    commMsgEl.className = cls || '';
+  }
+
+  // LR1 코드에서 첫 프레임만 안전하게 추출 (state 건드리지 않음, 썸네일 전용)
+  async function decodePresetFirstFrame(code) {
+    try {
+      if (!code || !code.startsWith('LR1:')) return null;
+      const obj = JSON.parse(await decompress(code.slice(4)));
+      const g = obj.g === 4 ? 4 : 8;
+      const f0 = obj.f && obj.f[0];
+      const cells = Array.isArray(f0) ? f0 : (f0 && f0.c) || [];
+      return cells.length ? { g, cells } : null;
+    } catch (e) { return null; }
+  }
+
+  function commAddCard(p) {
+    COMM.byId[p.id] = p;
+    const when = new Date(p.created_at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+    const div = document.createElement('div');
+    div.className = 'commCard';
+    div.dataset.id = p.id;
+    div.innerHTML =
+      '<div class="cthumb"></div>' +
+      '<div class="ct"></div><div class="cm"></div>' +
+      '<div class="cr"><button class="cload">' + t('comm.load') + '</button>' +
+      '<button class="cvote">▲ ' + p.votes + '</button>' +
+      '<button class="cdel" title="' + t('comm.delTitle') + '">🗑</button></div>';
+    div.querySelector('.ct').textContent = p.title;          // textContent → XSS 차단
+    div.querySelector('.cm').textContent = p.nick + ' · ' + when;
+    commListEl.appendChild(div);
+    // 첫 프레임 미리보기 썸네일 (서버 변경 없이 LR1 코드를 클라이언트에서 디코드)
+    const th = div.querySelector('.cthumb');
+    decodePresetFirstFrame(p.code).then(r => {
+      if (!r) { th.style.display = 'none'; return; }
+      th.style.gridTemplateColumns = 'repeat(' + r.g + ', 1fr)';
+      const frag = document.createDocumentFragment();
+      r.cells.forEach(c => {
+        const x = document.createElement('div');
+        x.style.background = c;
+        frag.appendChild(x);
+      });
+      th.appendChild(frag);
+    });
+  }
+
+  async function commFetch(append) {
+    if (!COMM.online) {
+      commListEl.innerHTML = '<div style="font-size:10px;color:rgba(255,255,255,0.35)"></div>';
+      commListEl.firstChild.textContent = t('comm.online');
+      return;
+    }
+    if (!append) { COMM.offset = 0; commListEl.textContent = t('comm.loading'); }
+    try {
+      const r = await fetch('/api/presets?sort=' + COMM.sort + '&offset=' + COMM.offset +
+        (COMM.q ? '&q=' + encodeURIComponent(COMM.q) : ''));
+      const d = await r.json();
+      if (!append) { commListEl.innerHTML = ''; COMM.byId = {}; }
+      if (!d.items.length && !append) {
+        commListEl.innerHTML = '<div style="font-size:10px;color:rgba(255,255,255,0.35)"></div>';
+        commListEl.firstChild.textContent = COMM.q ? t('comm.noResult') : t('comm.empty');
+      }
+      d.items.forEach(commAddCard);
+      COMM.offset += d.items.length;
+      document.getElementById('commMore').style.display = d.hasMore ? 'block' : 'none';
+    } catch {
+      commListEl.innerHTML = '<div style="font-size:10px;color:#ff8080"></div>';
+      commListEl.firstChild.textContent = t('comm.listFail');
+    }
+  }
+
+  commListEl.addEventListener('click', async (e) => {
+    const card = e.target.closest('.commCard');
+    if (!card) return;
+    const id = card.dataset.id;
+    if (e.target.classList.contains('cload')) {
+      try {
+        await importCode(COMM.byId[id].code);
+        commSetMsg(t('comm.loaded'), 'ok');
+      } catch (er) { commSetMsg(t('comm.loadFailM') + er.message, 'err'); }
+    } else if (e.target.classList.contains('cvote')) {
+      e.target.disabled = true;
+      try {
+        const r = await fetch('/api/vote', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id }),
+        });
+        const d = await r.json();
+        if (d.ok) { e.target.textContent = '▲ ' + d.votes; e.target.classList.add('voted'); }
+        else { commSetMsg(d.error || t('comm.voteFail'), 'err'); e.target.disabled = false; }
+      } catch { commSetMsg(t('comm.voteFail'), 'err'); e.target.disabled = false; }
+    } else if (e.target.classList.contains('cdel')) {
+      const pw = prompt(t('comm.delPw'));
+      if (pw == null) return;
+      try {
+        const r = await fetch('/api/delete', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, pw }),
+        });
+        const d = await r.json();
+        if (d.ok) { card.remove(); commSetMsg(t('comm.deleted'), 'ok'); }
+        else commSetMsg(d.error || t('comm.delFail'), 'err');
+      } catch { commSetMsg(t('comm.delFail'), 'err'); }
+    }
+  });
+
+  function setCommTab(s) {
+    COMM.sort = s;
+    document.getElementById('commTabNew').classList.toggle('active', s === 'new');
+    document.getElementById('commTabTop').classList.toggle('active', s === 'top');
+  }
+  document.getElementById('commTabNew').addEventListener('click', () => { setCommTab('new'); commFetch(false); });
+  document.getElementById('commTabTop').addEventListener('click', () => { setCommTab('top'); commFetch(false); });
+  document.getElementById('commRefresh').addEventListener('click', () => commFetch(false));
+  document.getElementById('commMore').addEventListener('click', () => commFetch(true));
+
+  let commSearchTimer = null;
+  const commSearchEl = document.getElementById('commSearch');
+  function commDoSearch() {
+    const v = commSearchEl.value.trim();
+    if (v === COMM.q) return;
+    COMM.q = v;
+    commFetch(false);
+  }
+  commSearchEl.addEventListener('input', () => {
+    clearTimeout(commSearchTimer);
+    commSearchTimer = setTimeout(commDoSearch, 350);   // 입력 후 350ms 디바운스
+  });
+  commSearchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { clearTimeout(commSearchTimer); commDoSearch(); }
+  });
+
+  document.getElementById('commSubmit').addEventListener('click', async () => {
+    if (!COMM.online) return commSetMsg(t('comm.online'), 'err');
+    const title = document.getElementById('commTitle').value.trim();
+    const nick  = document.getElementById('commNick').value.trim();
+    const pw    = document.getElementById('commPw').value;
+    if (!title) return commSetMsg(t('comm.needTitle'), 'err');
+    if (!nick)  return commSetMsg(t('comm.needNick'), 'err');
+    if (pw.length < 4) return commSetMsg(t('comm.needPw'), 'err');
+    let code;
+    try { code = await exportCode(); }
+    catch { return commSetMsg(t('comm.genFail'), 'err'); }
+    const token = (window.turnstile && tsWidgetId != null)
+      ? window.turnstile.getResponse(tsWidgetId) : undefined;
+    const btn = document.getElementById('commSubmit');
+    btn.disabled = true; commSetMsg(t('comm.uploading'));
+    try {
+      const r = await fetch('/api/presets', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title, nick, code, pw, turnstileToken: token }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        commSetMsg(t('comm.shared'), 'ok');
+        document.getElementById('commTitle').value = '';
+        if (window.turnstile && tsWidgetId != null) window.turnstile.reset(tsWidgetId);
+        setCommTab('new'); commFetch(false);
+      } else commSetMsg(d.error || t('comm.fail'), 'err');
+    } catch { commSetMsg(t('comm.failNet'), 'err'); }
+    btn.disabled = false;
+  });
+
+  if (TURNSTILE_SITEKEY) {
+    window.onTSLoad = () => {
+      tsWidgetId = window.turnstile.render('#commTurnstile', {
+        sitekey: TURNSTILE_SITEKEY, theme: 'dark', size: 'flexible',
+      });
+    };
+    const ts = document.createElement('script');
+    ts.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTSLoad';
+    ts.async = true; ts.defer = true;
+    document.head.appendChild(ts);
+  }
+
+  // 커뮤니티 패널을 처음 열 때 1회 로드 (toggleComm에서 처리)
+
+  // ============= .lroom 프로젝트 파일 =============
+  function sanitizeFilename(name) {
+    return (name || '').trim()
+      .replace(/[\/\\?%*:|"<>]/g, '_')   // 파일명 금지 문자 제거
+      .replace(/\s+/g, '_')
+      .slice(0, 60);
+  }
+
+  function exportProject() {
+    const rawName = document.getElementById('projName').value;
+    const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    const proj = {
+      app: 'lightyourroom',
+      version: 2,
+      name: rawName || '',
+      savedAt: new Date().toISOString(),
+      state: {
+        bpm: state.bpm,
+        gridSize: state.gridSize,
+        interpolate: state.interpolate,
+        timing: state.timing,
+      },
+      current: {
+        frames: state.frames.map(f => ({ cells: f.cells.slice() })),
+        editingFrame: state.editingFrame,
+      },
+      hotcues: hotcues,
+      hotcuesMidi: hotcuesMidi,
+      audio: audio.duration ? {
+        filename: audio.lastFilename || '',
+        duration: audio.duration,
+        markers: audio.markers.slice(),
+        trim: { start: audio.trimStart, end: audio.trimEnd },
+      } : null,
+    };
+    const json = JSON.stringify(proj, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safe = sanitizeFilename(rawName);
+    a.href = url;
+    a.download = safe ? `${safe}_${stamp}.lroom` : `lightyourroom_${stamp}.lroom`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function importProject(file) {
+    let proj;
+    try {
+      proj = JSON.parse(await file.text());
+    } catch (e) {
+      alert(t('err.parseFail') + e.message);
+      return;
+    }
+    if (proj.app !== 'lightyourroom' && proj.app !== 'lightingroom') {
+      if (!confirm(t('ask.notLyr'))) return;
+    }
+    pushHistory();
+    // 프로젝트 이름
+    if (typeof proj.name === 'string') {
+      document.getElementById('projName').value = proj.name;
+    }
+    // state
+    if (proj.state) {
+      if (proj.state.bpm) {
+        state.bpm = proj.state.bpm;
+        document.getElementById('bpm').value = state.bpm;
+      }
+      if (proj.state.gridSize) state.gridSize = proj.state.gridSize === 4 ? 4 : 8;
+      state.interpolate = !!proj.state.interpolate;
+      if (proj.state.timing) state.timing = JSON.parse(JSON.stringify(proj.state.timing));
+    }
+    // current frames
+    if (proj.current && Array.isArray(proj.current.frames)) {
+      state.frames = proj.current.frames.map(f => ({ cells: (f.cells || []).slice() }));
+      state.editingFrame = Math.min(proj.current.editingFrame || 0, state.frames.length - 1);
+    }
+    state.currentFrame = 0;
+    state.frameStartTime = performance.now();
+    // hotcues
+    if (Array.isArray(proj.hotcues)) {
+      for (let i = 0; i < HOTCUE_COUNT_KBD; i++) hotcues[i] = proj.hotcues[i] || null;
+      try { localStorage.setItem(HOTCUE_KEY_KBD, JSON.stringify(hotcues)); } catch(e) {}
+    }
+    if (proj.hotcuesMidi && typeof proj.hotcuesMidi === 'object') {
+      MIDI_BANKS.forEach(b => {
+        if (Array.isArray(proj.hotcuesMidi[b]) && proj.hotcuesMidi[b].length === 16)
+          hotcuesMidi[b] = proj.hotcuesMidi[b];
+      });
+      try { localStorage.setItem(HOTCUE_KEY_MIDI, JSON.stringify(hotcuesMidi)); } catch(e) {}
+    }
+    // audio markers / trim (음원은 다시 직접 로드해야 함)
+    if (proj.audio && Array.isArray(proj.audio.markers)) {
+      audio._pendingMarkers = proj.audio.markers;
+      audio._pendingTrim = proj.audio.trim || null;
+      if (proj.audio.filename) {
+        document.querySelector('.wHint') && (document.querySelector('.wHint').textContent =
+          `이전 음원: "${proj.audio.filename}" — 음원 파일을 다시 불러오면 마커가 복원됩니다.`);
+      }
+    }
+    // UI 반영
+    document.querySelectorAll('[data-size]').forEach(x =>
+      x.classList.toggle('active', parseInt(x.dataset.size) === state.gridSize));
+    interpBtn.classList.toggle('on', state.interpolate);
+    interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard');
+    syncTimingUI();
+    rebuildGrid();
+    renderHotcues();
+  }
+
+  document.getElementById('projSave').addEventListener('click', exportProject);
+  document.getElementById('projLoad').addEventListener('click', () =>
+    document.getElementById('projFile').click());
+  document.getElementById('projFile').addEventListener('change', e => {
+    if (e.target.files[0]) importProject(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  // ============= 패널 드래그·접기·닫기 =============
+  const panelEl = document.getElementById('panel');
+  const panelH1 = panelEl.querySelector('h1');
+
+  function makeDraggable(el, handle) {
+    let dragging = false, sx, sy, sl, st;
+    handle.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button, input, select, textarea')) return;
+      dragging = true;
+      const r = el.getBoundingClientRect();
+      sx = e.clientX; sy = e.clientY;
+      sl = r.left; st = r.top;
+      el.style.left = sl + 'px';
+      el.style.top  = st + 'px';
+      el.style.right = 'auto';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      let nl = sl + e.clientX - sx;
+      let nt = st + e.clientY - sy;
+      nl = Math.max(-el.offsetWidth + 80, Math.min(window.innerWidth - 80, nl));
+      nt = Math.max(0, Math.min(window.innerHeight - 40, nt));
+      el.style.left = nl + 'px';
+      el.style.top  = nt + 'px';
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+  }
+  makeDraggable(panelEl, panelH1);
+
+  // seqPanel 드래그 + 토글
+  const seqPanel = document.getElementById('seqPanel');
+  const seqTop   = document.getElementById('seqTop');
+  makeDraggable(seqPanel, seqTop);
+
+  function toggleSeq(force) {
+    const show = force !== undefined ? force : !seqPanel.classList.contains('visible');
+    seqPanel.classList.toggle('visible', show);
+    const btn = document.getElementById('seqToggle');
+    if (btn) btn.textContent = (show ? t('track.close') : t('track.open')) + '   T';
+  }
+  document.getElementById('seqToggle').addEventListener('click', () => toggleSeq());
+  document.getElementById('seqClose').addEventListener('click', () => toggleSeq(false));
+
+  // commPanel 드래그 + 토글
+  const commPanel = document.getElementById('commPanel');
+  makeDraggable(commPanel, document.getElementById('commHead'));
+  let commLoadedOnce = false;
+  function toggleComm(force) {
+    const show = force !== undefined ? force : !commPanel.classList.contains('visible');
+    commPanel.classList.toggle('visible', show);
+    const btn = document.getElementById('commToggle');
+    if (btn) btn.textContent = (show ? t('comm.closeBtn') : t('comm.openBtn')) + '   C';
+    if (show && !commLoadedOnce && COMM.online) { commLoadedOnce = true; commFetch(false); }
+  }
+  document.getElementById('commToggle').addEventListener('click', () => toggleComm());
+  document.getElementById('commClose').addEventListener('click', () => toggleComm(false));
+
+  // 접기/펼치기
+  const collapseBtn = document.getElementById('collapseBtn');
+  collapseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isCollapsed = panelEl.classList.toggle('collapsed');
+    collapseBtn.textContent = isCollapsed ? '+' : '−';
+  });
+
+  // 닫기 (H와 동일하게 패널 숨김)
+  document.getElementById('closeBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    panelEl.classList.add('hidden');
+  });
+
+  // 우클릭 → 패널/스테이지 어디서든 브라우저 컨텍스트 메뉴 안 뜨게
+  document.addEventListener('contextmenu', (e) => {
+    // 입력 필드 우클릭은 허용 (텍스트 작업 시 필요)
+    if (e.target.closest('input[type="text"], input[type="number"], textarea')) return;
+    e.preventDefault();
+  });
+
+  // 라이브 모드 중 화면 클릭 → 편집 모드 복귀
+  document.addEventListener('click', (e) => {
+    if (!state.perform) return;
+    if (e.target.closest('#panel')) return;
+    state.perform = false;
+    document.body.classList.remove('perform');
+    perfBtn.textContent = t('perf.live');
+    perfBtn.classList.remove('on');
+  });
+
+  // 패널 숨김 해제 (더블클릭으로 복귀)
+  document.addEventListener('dblclick', (e) => {
+    if (e.target.closest('#panel, #stage .cell')) return;
+    panelEl.classList.remove('hidden');
+  });
+
+  // ============= 가이드라인·Undo 버튼 =============
+  const guideBtn = document.getElementById('guideBtn');
+  guideBtn.addEventListener('click', () => {
+    document.body.classList.toggle('guide');
+    const on = document.body.classList.contains('guide');
+    guideBtn.classList.toggle('on', on);
+    guideBtn.textContent = on ? t('guide.on') : t('guide.off');
+  });
+  document.getElementById('undoBtn').addEventListener('click', undo);
+  document.getElementById('redoBtn').addEventListener('click', redo);
+
+  // ============= 키보드 =============
+  window.addEventListener('keydown', (e) => {
+    const inField = e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA';
+
+    // Undo / Redo — 입력 필드 밖에서만 (텍스트 박스 안의 ctrl+z는 브라우저 기본 동작 유지)
+    if (!inField && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+      return;
+    }
+    // Ctrl+Y = redo (윈도우 관습)
+    if (!inField && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+
+    if (inField) return;
+
+    // 핫큐: 1~9, 0 (키보드 모드에서만)
+    if (!midi.enabled) {
+      const dm = e.code && e.code.match(/^Digit([0-9])$/);
+      if (dm) {
+        const digit = parseInt(dm[1]);
+        const idx = digit === 0 ? 9 : digit - 1;  // '0' → 슬롯9, '1'→0 ... '9'→8
+        if (e.shiftKey) saveHotcue(idx);
+        else recallHotcueLive(idx);
+        e.preventDefault();
+        return;
+      }
+    }
+    switch (e.key.toLowerCase()) {
+      case ' ':
+        e.preventDefault();
+        // 트랙(음원)이 로드돼 있으면 Space = 음악 재생/정지 (조명은 마커로 자동)
+        if (audio.el) wPlay.click();
+        else playBtn.click();
+        break;
+      case 'n':
+        // N = 새 빈 프레임 / Shift+N = 현재 프레임 복제
+        e.preventDefault();
+        if (e.shiftKey) document.getElementById('frameClone').click();
+        else document.getElementById('frameDup').click();
+        break;
+      case 'delete':
+      case 'backspace':
+        e.preventDefault();
+        document.getElementById('frameDel').click();
+        break;
+      case 'e': perfBtn.click(); break;
+      case 'b': softBtn.click(); break;
+      case 'g': guideBtn.click(); break;
+      case 'h': document.getElementById('panel').classList.toggle('hidden'); break;
+      case 't': toggleSeq(); break;
+      case 'c': toggleComm(); break;
+      case 'f':
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+        break;
+      case 'arrowleft':
+        state.editingFrame = (state.editingFrame - 1 + state.frames.length) % state.frames.length;
+        if (!state.playing) { state.currentFrame = state.editingFrame; renderStageImmediate(); }
+        syncTimingUI();
+        renderFrameStrip();
+        break;
+      case 'arrowright':
+        state.editingFrame = (state.editingFrame + 1) % state.frames.length;
+        if (!state.playing) { state.currentFrame = state.editingFrame; renderStageImmediate(); }
+        syncTimingUI();
+        renderFrameStrip();
+        break;
+    }
+  });
+
+  // ============= MIDI 엔진 =============
+  function updateMidiIndicator() {
+    const dot = document.getElementById('midiDot');
+    dot.classList.toggle('active', midi.enabled && !!midi.input);
+  }
+
+  function populateMidiDevices() {
+    const sel = document.getElementById('midiDevSel');
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">' + t('midi.devSelect') + '</option>';
+    midi.access.inputs.forEach((input, id) => {
+      const opt = document.createElement('option');
+      opt.value = id; opt.textContent = input.name;
+      sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+    updateMidiIndicator();
+  }
+
+  function connectMidiInput(id) {
+    if (midi.input) midi.input.onmidimessage = null;
+    midi.input = id ? midi.access.inputs.get(id) : null;
+    if (midi.input) midi.input.onmidimessage = handleMidiMessage;
+    updateMidiIndicator();
+  }
+
+  function handleMidiMessage(e) {
+    const [status, note, velocity] = e.data;
+    const isNoteOn = (status & 0xF0) === 0x90 && velocity > 0;
+    if (!isNoteOn || !midi.enabled) return;
+    const padIdx = note - midi.offset;
+    if (padIdx < 0 || padIdx >= HOTCUE_COUNT_MIDI) return;
+    recallHotcueMidiLive(midi.bank, padIdx);
+  }
+
+  async function enableMidi() {
+    if (!navigator.requestMIDIAccess) {
+      alert(t('midi.noSupport'));
+      return false;
+    }
+    try {
+      midi.access = await navigator.requestMIDIAccess();
+      midi.access.onstatechange = populateMidiDevices;
+      populateMidiDevices();
+      return true;
+    } catch(e) {
+      alert(t('midi.accessFail') + e.message);
+      return false;
+    }
+  }
+
+  function disableMidi() {
+    if (midi.input) { midi.input.onmidimessage = null; midi.input = null; }
+    updateMidiIndicator();
+  }
+
+  // MIDI 모드 토글
+  const midiBtn = document.getElementById('midiBtn');
+  midiBtn.addEventListener('click', async () => {
+    if (!midi.enabled) {
+      const ok = await enableMidi();
+      if (!ok) return;
+      midi.enabled = true;
+      midiBtn.textContent = '';
+      const dot = document.createElement('span'); dot.className = 'midi-indicator active'; dot.id = 'midiDot';
+      midiBtn.appendChild(dot);
+      midiBtn.appendChild(document.createTextNode('MIDI ON'));
+      midiBtn.classList.add('on');
+      document.getElementById('midiSettings').classList.add('visible');
+      document.getElementById('bankTabs').classList.add('visible');
+    } else {
+      midi.enabled = false;
+      disableMidi();
+      midiBtn.textContent = '';
+      const dot = document.createElement('span'); dot.className = 'midi-indicator'; dot.id = 'midiDot';
+      midiBtn.appendChild(dot);
+      midiBtn.appendChild(document.createTextNode('MIDI OFF'));
+      midiBtn.classList.remove('on');
+      document.getElementById('midiSettings').classList.remove('visible');
+      document.getElementById('bankTabs').classList.remove('visible');
+    }
+    renderHotcues();
+  });
+
+  // MIDI 장치 선택
+  document.getElementById('midiDevSel').addEventListener('change', e => connectMidiInput(e.target.value));
+
+  // 노트 오프셋
+  document.getElementById('midiOffset').addEventListener('input', e => {
+    const v = parseInt(e.target.value);
+    if (!isNaN(v)) { midi.offset = v; document.getElementById('midiPreset').value = ''; }
+  });
+  document.getElementById('midiPreset').addEventListener('change', e => {
+    if (e.target.value !== '') {
+      midi.offset = parseInt(e.target.value);
+      document.getElementById('midiOffset').value = midi.offset;
+    }
+  });
+
+  // 뱅크 탭
+  document.querySelectorAll('.bankTab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      midi.bank = btn.dataset.bank;
+      document.querySelectorAll('.bankTab').forEach(b => b.classList.toggle('active', b.dataset.bank === midi.bank));
+      renderHotcues();
+    });
+  });
+
+  // ============= 트랙 =============
+  const audio = {
+    el: null,
+    buffer: null,
+    duration: 0,
+    lastFilename: '',
+    markers: [],        // { time: Number, hotcue: Number }
+    trimStart: 0,
+    trimEnd: 0,
+    triggered: new Set(),
+    recording: false,
+    looping: false,
+    viewStart: 0,
+    viewEnd: 0,
+    _pendingMarkers: null,
+    _pendingTrim: null,
+  };
+
+  const waveCanvasWrap = document.getElementById('waveCanvasWrap');
+  const waveCanvas    = document.getElementById('waveCanvas');
+  const waveOverlay   = document.getElementById('waveOverlay');
+  const wTime         = document.getElementById('wTime');
+  const wPlay         = document.getElementById('wPlay');
+  const wStop         = document.getElementById('wStop');
+  const wRec          = document.getElementById('wRec');
+  const wLoop         = document.getElementById('wLoop');
+  const wZoomLabel    = document.getElementById('wZoomLabel');
+
+  // 핫큐 대표색 (첫 프레임에서 첫 비-검정 셀)
+  function hotcueColorRGB(idx) {
+    const cue = hotcues[idx];
+    if (!cue || !cue.frames || !cue.frames[0]) return [90, 90, 90];
+    for (const c of cue.frames[0].cells) {
+      if (c && c !== '#000000') return hexToRgb(c);
+    }
+    return [70, 70, 70];
+  }
+
+  // 라이브 핫큐 트리거
+  let lastUsedHotcue = 0;
+  function recallHotcueLive(idx) {
+    if (!hotcues[idx]) return;
+    lastUsedHotcue = idx;
+    recallHotcue(idx);
+    if (audio.recording && audio.el && !audio.el.paused) {
+      audio.markers.push({ time: audio.el.currentTime, hotcue: idx });
+      audio.markers.sort((a, b) => a.time - b.time);
+      audio.triggered.clear();
+    }
+  }
+  function recallHotcueMidiLive(bank, idx) {
+    if (!hotcuesMidi[bank][idx]) return;
+    recallHotcueMidi(bank, idx);
+  }
+
+  function fmtTime(s) {
+    s = Math.max(0, s | 0);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  async function loadAudio(file) {
+    if (audio.el) {
+      audio.el.pause();
+      URL.revokeObjectURL(audio.el.src);
+    }
+    audio.lastFilename = file.name;
+    audio.el = new Audio(URL.createObjectURL(file));
+    audio.el.preload = 'auto';
+    audio.el.addEventListener('ended', () => {
+      if (audio.looping) {
+        audio.el.currentTime = audio.trimStart;
+        audio.triggered.clear();
+        audio.el.play();
+      } else {
+        wPlay.textContent = '▶';
+      }
+    });
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ac = new Ctx();
+      const buf = await file.arrayBuffer();
+      audio.buffer = await ac.decodeAudioData(buf);
+      audio.duration = audio.buffer.duration;
+      audio.trimStart = 0;
+      audio.trimEnd = audio.duration;
+      audio.markers = [];
+      audio.triggered.clear();
+      audio.viewStart = 0;
+      audio.viewEnd = audio.duration;
+      // 프로젝트 불러오기 후 펜딩 마커/트림 적용
+      if (audio._pendingMarkers) {
+        audio.markers = audio._pendingMarkers.filter(m => m.time <= audio.duration);
+        audio._pendingMarkers = null;
+      }
+      if (audio._pendingTrim) {
+        audio.trimStart = Math.max(0, Math.min(audio.duration, audio._pendingTrim.start));
+        audio.trimEnd   = Math.max(audio.trimStart, Math.min(audio.duration, audio._pendingTrim.end));
+        audio._pendingTrim = null;
+      }
+      drawWaveform();
+      wZoomLabel.textContent = zoomLbl();
+    } catch (e) {
+      alert(t('audio.decodeFail') + e.message);
+    }
+  }
+
+  document.getElementById('audioFile').addEventListener('change', e => {
+    if (e.target.files[0]) loadAudio(e.target.files[0]);
+  });
+
+  // ---- 드래그앤드롭 음원 등록 ----
+  function pickAudioFile(dt) {
+    if (!dt) return null;
+    const files = dt.files ? Array.from(dt.files) : [];
+    return files.find(f => f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|flac|aiff?)$/i.test(f.name)) || null;
+  }
+  ['dragenter', 'dragover'].forEach(ev =>
+    seqPanel.addEventListener(ev, e => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        seqPanel.classList.add('drag-over');
+      }
+    })
+  );
+  ['dragleave', 'dragend'].forEach(ev =>
+    seqPanel.addEventListener(ev, e => {
+      if (e.target === seqPanel || !seqPanel.contains(e.relatedTarget)) seqPanel.classList.remove('drag-over');
+    })
+  );
+  seqPanel.addEventListener('drop', e => {
+    e.preventDefault();
+    seqPanel.classList.remove('drag-over');
+    const f = pickAudioFile(e.dataTransfer);
+    if (f) loadAudio(f);
+    else alert(t('audio.dropHint'));
+  });
+  // 트랙 창이 닫혀 있어도 화면 어디든 오디오 드롭하면 창 열고 로드
+  ['dragenter', 'dragover'].forEach(ev =>
+    window.addEventListener(ev, e => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+    })
+  );
+  window.addEventListener('drop', e => {
+    if (seqPanel.contains(e.target)) return;
+    const f = pickAudioFile(e.dataTransfer);
+    if (f) { e.preventDefault(); toggleSeq(true); loadAudio(f); }
+  });
+
+  // ---- 캔버스 유틸 ----
+  function fitCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr || c.height !== h * dpr) {
+      c.width = w * dpr; c.height = h * dpr;
+    }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h };
+  }
+
+  function viewRange() { return Math.max(0.001, audio.viewEnd - audio.viewStart); }
+  function timeToX(t, w) { return ((t - audio.viewStart) / viewRange()) * w; }
+  function xToTime(x) {
+    const w = waveCanvasWrap.clientWidth;
+    return Math.max(0, Math.min(audio.duration, audio.viewStart + (x / w) * viewRange()));
+  }
+
+  // ---- 파형 그리기 ----
+  function drawWaveform() {
+    if (!audio.buffer) return;
+    const { ctx, w, h } = fitCanvas(waveCanvas);
+    ctx.clearRect(0, 0, w, h);
+    const data = audio.buffer.getChannelData(0);
+    const sr   = audio.buffer.sampleRate;
+    const startS = Math.max(0, Math.floor(audio.viewStart * sr));
+    const endS   = Math.min(data.length, Math.ceil(audio.viewEnd * sr));
+    const totalS = endS - startS;
+    if (totalS <= 0) return;
+    const step = totalS / w;
+    const half = h / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    if (step < 1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath();
+      for (let x = 0; x < w; x++) {
+        const i = startS + Math.floor(x * step);
+        const v = data[i] || 0;
+        const y = half + v * half * 0.9;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else {
+      for (let x = 0; x < w; x++) {
+        let mn = 1, mx = -1;
+        const s  = startS + Math.floor(x * step);
+        const ed = Math.min(data.length, startS + Math.floor((x + 1) * step));
+        for (let i = s; i < ed; i++) {
+          const v = data[i];
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+        const y1 = half + mn * half * 0.9;
+        const y2 = half + mx * half * 0.9;
+        ctx.fillRect(x, y1, 1, Math.max(1, y2 - y1));
+      }
+    }
+  }
+
+  // ---- 오버레이(마커·트림·플레이헤드) ----
+  function drawOverlay() {
+    const { ctx, w, h } = fitCanvas(waveOverlay);
+    ctx.clearRect(0, 0, w, h);
+    if (!audio.duration) return;
+
+    const xsRaw = timeToX(audio.trimStart, w);
+    const xeRaw = timeToX(audio.trimEnd,   w);
+    const xs = Math.max(0, Math.min(w, xsRaw));
+    const xe = Math.max(0, Math.min(w, xeRaw));
+
+    // 트림 밖 어둡게
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, xs, h);
+    ctx.fillRect(xe, 0, w - xe, h);
+
+    // 트림 핸들
+    if (xsRaw >= 0 && xsRaw <= w) {
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(xsRaw - 2, 0, 4, h);
+      ctx.fillStyle = '#000'; ctx.fillRect(xsRaw - 14, 0, 28, 13);
+      ctx.fillStyle = '#ffeb3b'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('IN', xsRaw, 10);
+    }
+    if (xeRaw >= 0 && xeRaw <= w) {
+      ctx.fillStyle = '#ffeb3b';
+      ctx.fillRect(xeRaw - 2, 0, 4, h);
+      ctx.fillStyle = '#000'; ctx.fillRect(xeRaw - 14, 0, 28, 13);
+      ctx.fillStyle = '#ffeb3b'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('OUT', xeRaw, 10);
+    }
+
+    // 마커
+    for (const m of audio.markers) {
+      if (m.time < audio.viewStart || m.time > audio.viewEnd) continue;
+      const x = timeToX(m.time, w);
+      const c = hotcueColorRGB(m.hotcue);
+      ctx.fillStyle = `rgb(${c.join(',')})`;
+      ctx.fillRect(x - 1, 13, 2, h - 13);
+      ctx.fillRect(x - 10, h - 18, 20, 18);
+      ctx.fillStyle = '#000'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(String(m.hotcue + 1), x, h - 4);
+    }
+
+    // 미니맵 (줌인 시 위치바)
+    if (viewRange() < audio.duration * 0.98) {
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillRect(0, h - 3, w, 3);
+      const vs = (audio.viewStart / audio.duration) * w;
+      const ve = (audio.viewEnd   / audio.duration) * w;
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillRect(vs, h - 3, ve - vs, 3);
+    }
+
+    // 플레이헤드
+    if (audio.el) {
+      const t = audio.el.currentTime;
+      if (t >= audio.viewStart && t <= audio.viewEnd) {
+        const px = timeToX(t, w);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(px - 1, 0, 2, h);
+      }
+    }
+  }
+
+  // ---- 줌 ----
+  function zoomLbl() {
+    const z = audio.duration / viewRange();
+    return z >= 10 ? z.toFixed(0) + '×' : z.toFixed(1) + '×';
+  }
+  function clampView() {
+    if (audio.viewStart < 0) { audio.viewEnd -= audio.viewStart; audio.viewStart = 0; }
+    if (audio.viewEnd > audio.duration) {
+      audio.viewStart -= (audio.viewEnd - audio.duration);
+      audio.viewEnd = audio.duration;
+      if (audio.viewStart < 0) audio.viewStart = 0;
+    }
+  }
+  function setZoom(newRange, anchorFrac = 0.5, anchorT = null) {
+    const minR = Math.max(audio.duration / 500, 0.05);
+    newRange = Math.max(minR, Math.min(audio.duration, newRange));
+    if (anchorT === null) anchorT = audio.viewStart + viewRange() * anchorFrac;
+    audio.viewStart = anchorT - newRange * anchorFrac;
+    audio.viewEnd   = audio.viewStart + newRange;
+    clampView();
+    drawWaveform();
+    wZoomLabel.textContent = zoomLbl();
+  }
+  function wZoomIn(f, t)  { setZoom(viewRange() * 0.6, f, t); }
+  function wZoomOut(f, t) { setZoom(viewRange() / 0.6, f, t); }
+  function wZoomFit()     { audio.viewStart = 0; audio.viewEnd = audio.duration; drawWaveform(); wZoomLabel.textContent = zoomLbl(); }
+
+  document.getElementById('wZoomIn') .addEventListener('click', () => { if (audio.duration) wZoomIn(0.5);  });
+  document.getElementById('wZoomOut').addEventListener('click', () => { if (audio.duration) wZoomOut(0.5); });
+  document.getElementById('wZoomFit').addEventListener('click', () => { if (audio.duration) wZoomFit();    });
+
+  // ---- 오디오 프레임 루프 ----
+  function audioFrame() {
+    if (audio.el && !audio.el.paused) {
+      const t = audio.el.currentTime;
+
+      // 줌인 시 자동 스크롤
+      if (audio.duration && viewRange() < audio.duration * 0.99) {
+        if (t < audio.viewStart || t > audio.viewEnd - viewRange() * 0.1) {
+          const r = viewRange();
+          audio.viewStart = t - r * 0.2;
+          audio.viewEnd   = audio.viewStart + r;
+          clampView();
+          drawWaveform();
+        }
+      }
+
+      // 트림 OUT 도달
+      if (t >= audio.trimEnd - 0.01) {
+        audio.el.pause();
+        audio.el.currentTime = audio.trimStart;
+        audio.triggered.clear();
+        wPlay.textContent = '▶';
+        if (audio.looping) { audio.el.play(); wPlay.textContent = '⏸'; }
+      } else {
+        // 마커 트리거 → 해당 핫큐 자동 불러오기
+        for (const m of audio.markers) {
+          const key = `${m.time.toFixed(3)}_${m.hotcue}`;
+          if (!audio.triggered.has(key) && t >= m.time && t < m.time + 0.4) {
+            audio.triggered.add(key);
+            recallHotcue(m.hotcue);  // 자동 트리거는 recallHotcue (REC 재기록 안 함)
+          }
+        }
+      }
+    }
+    if (audio.duration) {
+      wTime.textContent = `${fmtTime(audio.el?.currentTime || 0)} / ${fmtTime(audio.duration)}`;
+      drawOverlay();
+    }
+    requestAnimationFrame(audioFrame);
+  }
+  requestAnimationFrame(audioFrame);
+
+  // ---- 트랜스포트 ----
+  wPlay.addEventListener('click', () => {
+    if (!audio.el) return;
+    if (audio.el.paused) {
+      if (audio.el.currentTime < audio.trimStart || audio.el.currentTime >= audio.trimEnd) {
+        audio.el.currentTime = audio.trimStart;
+        audio.triggered.clear();
+      }
+      audio.el.play();
+      wPlay.textContent = '⏸';
+    } else {
+      audio.el.pause();
+      wPlay.textContent = '▶';
+    }
+  });
+  wStop.addEventListener('click', () => {
+    if (!audio.el) return;
+    audio.el.pause();
+    audio.el.currentTime = audio.trimStart;
+    audio.triggered.clear();
+    wPlay.textContent = '▶';
+  });
+  wRec.addEventListener('click', () => {
+    audio.recording = !audio.recording;
+    wRec.classList.toggle('active', audio.recording);
+  });
+  wLoop.addEventListener('click', () => {
+    audio.looping = !audio.looping;
+    wLoop.classList.toggle('active', audio.looping);
+    wLoop.textContent = audio.looping ? '↻ Loop ON' : '↻ Loop';
+  });
+  document.getElementById('wClear').addEventListener('click', () => {
+    if (confirm(t('ask.clearMarkers'))) {
+      audio.markers = [];
+      audio.triggered.clear();
+    }
+  });
+
+  // ---- 파형 마우스 인터랙션 ----
+  let wDragMode = null;  // 'trimStart' | 'trimEnd' | 'marker' | 'seek'
+  let wDragMarkerIdx = -1;
+
+  function findMarkerNear(x) {
+    const w = waveCanvasWrap.clientWidth;
+    for (let i = 0; i < audio.markers.length; i++) {
+      const m = audio.markers[i];
+      if (m.time < audio.viewStart || m.time > audio.viewEnd) continue;
+      if (Math.abs(timeToX(m.time, w) - x) < 8) return i;
+    }
+    return -1;
+  }
+  function nearTrim(x) {
+    const w = waveCanvasWrap.clientWidth;
+    const xs = timeToX(audio.trimStart, w);
+    const xe = timeToX(audio.trimEnd,   w);
+    if (xs >= 0 && xs <= w && Math.abs(xs - x) < 8) return 'trimStart';
+    if (xe >= 0 && xe <= w && Math.abs(xe - x) < 8) return 'trimEnd';
+    return null;
+  }
+
+  waveCanvasWrap.addEventListener('mousedown', (e) => {
+    if (!audio.duration) return;
+    const rect = waveCanvasWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (e.button === 2) return;
+
+    // Shift+클릭: 현재 마지막 사용 핫큐 슬롯에 마커 추가
+    if (e.shiftKey) {
+      audio.markers.push({ time: xToTime(x), hotcue: lastUsedHotcue });
+      audio.markers.sort((a, b) => a.time - b.time);
+      return;
+    }
+
+    const trim = nearTrim(x);
+    if (trim) { wDragMode = trim; return; }
+
+    const mi = findMarkerNear(x);
+    if (mi >= 0) { wDragMode = 'marker'; wDragMarkerIdx = mi; return; }
+
+    // 시크
+    wDragMode = 'seek';
+    audio.el.currentTime = xToTime(x);
+    audio.triggered.clear();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!wDragMode) return;
+    const rect = waveCanvasWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const t = xToTime(x);
+    if (wDragMode === 'trimStart') {
+      audio.trimStart = Math.min(t, audio.trimEnd - 0.1);
+    } else if (wDragMode === 'trimEnd') {
+      audio.trimEnd = Math.max(t, audio.trimStart + 0.1);
+    } else if (wDragMode === 'marker' && wDragMarkerIdx >= 0) {
+      audio.markers[wDragMarkerIdx].time = Math.max(0, Math.min(audio.duration, t));
+    } else if (wDragMode === 'seek' && audio.el) {
+      audio.el.currentTime = t;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (wDragMode === 'marker') {
+      audio.markers.sort((a, b) => a.time - b.time);
+      audio.triggered.clear();
+    }
+    wDragMode = null;
+    wDragMarkerIdx = -1;
+  });
+
+  waveCanvasWrap.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (!audio.duration) return;
+    const rect = waveCanvasWrap.getBoundingClientRect();
+    const mi = findMarkerNear(e.clientX - rect.left);
+    if (mi >= 0) { audio.markers.splice(mi, 1); audio.triggered.clear(); }
+  });
+
+  // 휠: 팬 / Ctrl+휠: 줌
+  waveCanvasWrap.addEventListener('wheel', (e) => {
+    if (!audio.duration) return;
+    e.preventDefault();
+    const rect = waveCanvasWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const frac = x / rect.width;
+    const anchorT = audio.viewStart + viewRange() * frac;
+    if (e.ctrlKey || e.metaKey) {
+      const dir = e.deltaY < 0 ? 0.85 : 1.18;
+      setZoom(viewRange() * dir, frac, anchorT);
+    } else {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const shift = (delta / rect.width) * viewRange();
+      audio.viewStart += shift;
+      audio.viewEnd   += shift;
+      clampView();
+      drawWaveform();
+    }
+  }, { passive: false });
+
+  // ============= 초기 =============
+  rebuildGrid();
+
+  // ===== i18n 동적 갱신 + 언어 초기화 =====
+  window.__refreshDynI18n = function () {
+    try {
+      interpBtn.textContent = state.interpolate ? t('interp.soft') : t('interp.hard');
+      perfBtn.textContent   = state.perform ? t('perf.edit') : t('perf.live');
+      guideBtn.textContent  = document.body.classList.contains('guide') ? t('guide.on') : t('guide.off');
+      const sq = document.getElementById('seqToggle');
+      if (sq) sq.textContent = (seqPanel.classList.contains('visible') ? t('track.close') : t('track.open')) + '   T';
+      const cm = document.getElementById('commToggle');
+      if (cm) cm.textContent = (commPanel.classList.contains('visible') ? t('comm.closeBtn') : t('comm.openBtn')) + '   C';
+      buildRateOptions();
+      const ps = document.getElementById('presetSel');
+      const v = ps.value; populatePresetSelect(); ps.value = v;
+    } catch (e) {}
+  };
+
+  (function initLang() {
+    let saved = null;
+    try { saved = localStorage.getItem('lyr_lang'); } catch (e) {}
+    // Default English; detect KO/JA/ZH from the browser, refine by region below.
+    const nav = (navigator.language || '').toLowerCase();
+    const navLang = nav.startsWith('ko') ? 'ko'
+                  : nav.startsWith('ja') ? 'ja'
+                  : nav.startsWith('zh') ? 'zh'
+                  : 'en';
+    applyLang(saved || navLang);
+    if (!saved && (location.protocol === 'http:' || location.protocol === 'https:')) {
+      fetch('/api/geo').then(r => r.json()).then(d => {
+        const c = d.country;
+        const byCountry = c === 'KR' ? 'ko'
+                        : c === 'JP' ? 'ja'
+                        : (c === 'CN' || c === 'TW' || c === 'HK' || c === 'MO') ? 'zh'
+                        : navLang;  // outside these regions, fall back to the browser language
+        if (byCountry !== window.__getLang()) applyLang(byCountry);
+      }).catch(() => {});
+    }
+  })();
+  document.getElementById('langBtn').addEventListener('click', () => {
+    const cur = window.__getLang();
+    const next = LANGS[(LANGS.indexOf(cur) + 1) % LANGS.length];
+    applyLang(next);
+  });
+})();
+</script>
+</body>
+</html>

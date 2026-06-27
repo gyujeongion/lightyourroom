@@ -1,0 +1,8 @@
+name = "lightyourroom"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lightyourroom_community"
+database_id = "79c5a17a-0f85-43b6-b2f0-91b1bcf31885"
